@@ -1,25 +1,28 @@
 """
 MyInvestmentMarkets Bot — WSGI entry point
-Market Quotes inline keyboard with:
-- Per-user sessions (each user gets their own message, not shared editing)
-- CoinGecko for crypto prices (Binance blocked on Vercel US servers)
-- QuickChart.io chart images with MIM watermark sent via sendPhoto
-- Close button to clean up user session messages
+
+Per-user session architecture:
+  - Pinned message (id:36) click → sends NEW per-user session message
+  - All subsequent interactions edit THAT message (same message_id = true isolation)
+  - Uses editMessageMedia to switch between text↔photo in-place (no delete+resend)
+
+Charts:
+  - OHLC candlestick via QuickChart.io /chart/create (short URL)
+  - MIM watermark in chart title
+  - CoinGecko for crypto (Binance blocked on Vercel US)
 """
 
 import json
 import os
 import urllib.request
 import urllib.parse
+from datetime import datetime, timezone, timedelta
 
 BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
 BASE_URL = f"https://api.telegram.org/bot{BOT_TOKEN}"
 
-# The pinned keyboard message ID in Market Quotes room
-# When this message is clicked → send NEW per-user message instead of editing
-PINNED_MSG_ID = 36
+PINNED_MSG_ID = 36  # The shared pinned keyboard in Market Quotes room
 
-# ── Instrument definitions ──────────────────────────────────────────────────
 CATEGORIES = {
     "indices": {
         "label": "📈 Indices",
@@ -61,14 +64,6 @@ CATEGORIES = {
     }
 }
 
-# CoinGecko ID → display name for chart labels
-CG_ID_MAP = {
-    "bitcoin":  "BTC/USD",
-    "ethereum": "ETH/USD",
-    "ripple":   "XRP/USD",
-    "solana":   "SOL/USD",
-}
-
 # ── Telegram helpers ────────────────────────────────────────────────────────
 def tg(method, payload):
     data = json.dumps(payload).encode()
@@ -83,41 +78,49 @@ def tg(method, payload):
         print(f"TG [{method}] error: {e}")
         return {}
 
-def answer_cb(cid, text=None):
-    payload = {"callback_query_id": cid}
-    if text:
-        payload["text"] = text
-    tg("answerCallbackQuery", payload)
+def answer_cb(cid):
+    tg("answerCallbackQuery", {"callback_query_id": cid})
+
+def send_text(chat, thread, text, keyboard=None):
+    p = {"chat_id": chat, "text": text,
+         "parse_mode": "HTML", "disable_web_page_preview": True}
+    if thread:
+        p["message_thread_id"] = thread
+    if keyboard:
+        p["reply_markup"] = keyboard
+    return tg("sendMessage", p)
 
 def edit_text(chat, mid, text, keyboard=None):
+    """Edit an existing TEXT message."""
     p = {"chat_id": chat, "message_id": mid,
          "text": text, "parse_mode": "HTML",
          "disable_web_page_preview": True}
     if keyboard:
         p["reply_markup"] = keyboard
-    tg("editMessageText", p)
+    return tg("editMessageText", p)
 
-def send_text(chat, thread, text, keyboard=None):
-    p = {"chat_id": chat, "message_thread_id": thread,
-         "text": text, "parse_mode": "HTML",
-         "disable_web_page_preview": True}
+def edit_to_photo(chat, mid, photo_url, caption, keyboard=None):
+    """Convert any message type to photo in-place (same message_id!)."""
+    p = {
+        "chat_id": chat, "message_id": mid,
+        "media": {
+            "type": "photo",
+            "media": photo_url,
+            "caption": caption,
+            "parse_mode": "HTML"
+        }
+    }
     if keyboard:
         p["reply_markup"] = keyboard
-    return tg("sendMessage", p)
+    return tg("editMessageMedia", p)
 
-def send_photo(chat, thread, photo_url, caption, keyboard=None):
-    p = {"chat_id": chat, "message_thread_id": thread,
-         "photo": photo_url, "caption": caption,
-         "parse_mode": "HTML"}
+def edit_caption(chat, mid, caption, keyboard=None):
+    """Edit caption of a photo message."""
+    p = {"chat_id": chat, "message_id": mid,
+         "caption": caption, "parse_mode": "HTML"}
     if keyboard:
         p["reply_markup"] = keyboard
-    return tg("sendPhoto", p)
-
-def edit_photo(chat, mid, photo_url, caption, keyboard=None):
-    """Edit a message by replacing it with a new photo (delete + send)"""
-    tg("deleteMessage", {"chat_id": chat, "message_id": mid})
-    # After delete, mid is gone — send new photo (caller handles new mid)
-    return send_photo(chat, None, photo_url, caption, keyboard)
+    return tg("editMessageCaption", p)
 
 def delete_msg(chat, mid):
     tg("deleteMessage", {"chat_id": chat, "message_id": mid})
@@ -128,11 +131,10 @@ def fetch(url):
     with urllib.request.urlopen(req, timeout=10) as r:
         return json.loads(r.read())
 
-def get_yf(symbol):
+def get_yf_ticker(symbol):
     url = (f"https://query1.finance.yahoo.com/v8/finance/chart/"
            f"{urllib.parse.quote(symbol)}?interval=1d&range=2d")
-    data = fetch(url)
-    meta = data["chart"]["result"][0]["meta"]
+    meta = fetch(url)["chart"]["result"][0]["meta"]
     price = meta.get("regularMarketPrice", 0)
     prev  = meta.get("chartPreviousClose", meta.get("previousClose", price))
     pct   = ((price - prev) / prev * 100) if prev else 0
@@ -140,157 +142,124 @@ def get_yf(symbol):
     low   = meta.get("regularMarketDayLow",  price)
     return price, pct, high, low
 
-def get_cg(cg_id):
-    """CoinGecko free API — reliable, no key, works on Vercel US servers"""
+def get_yf_ohlc(symbol, days=30):
+    url = (f"https://query1.finance.yahoo.com/v8/finance/chart/"
+           f"{urllib.parse.quote(symbol)}?interval=1d&range={days}d")
+    result = fetch(url)["chart"]["result"][0]
+    timestamps = result["timestamps"]
+    q = result["indicators"]["quote"][0]
+    ohlc = []
+    for i, ts in enumerate(timestamps):
+        o = q["open"][i]
+        h = q["high"][i]
+        l = q["low"][i]
+        c = q["close"][i]
+        if None not in (o, h, l, c):
+            dt = datetime.fromtimestamp(ts, tz=timezone.utc).strftime("%Y-%m-%d")
+            ohlc.append({"x": dt, "o": round(o,4), "h": round(h,4),
+                         "l": round(l,4), "c": round(c,4)})
+    return ohlc[-25:]
+
+def get_cg_ticker(cg_id):
     url = (f"https://api.coingecko.com/api/v3/simple/price"
            f"?ids={cg_id}&vs_currencies=usd"
            f"&include_24hr_change=true&include_24hr_vol=true"
            f"&include_high_24h=true&include_low_24h=true")
-    data = fetch(url)
-    d = data[cg_id]
-    price = d["usd"]
-    pct   = d.get("usd_24h_change", 0)
-    high  = d.get("usd_24h_high",  price)
-    low   = d.get("usd_24h_low",   price)
-    return price, pct, high, low
+    d = fetch(url)[cg_id]
+    return d["usd"], d.get("usd_24h_change", 0), d.get("usd_24h_high", d["usd"]), d.get("usd_24h_low", d["usd"])
 
-def get_yf_closes(symbol, points=30):
-    """Fetch last N daily close prices for sparkline"""
-    url = (f"https://query1.finance.yahoo.com/v8/finance/chart/"
-           f"{urllib.parse.quote(symbol)}?interval=1d&range=60d")
-    try:
-        data = fetch(url)
-        closes = data["chart"]["result"][0]["indicators"]["quote"][0]["close"]
-        closes = [c for c in closes if c is not None]
-        return closes[-points:]
-    except Exception:
-        return []
+def get_cg_ohlc(cg_id, days=30):
+    url = (f"https://api.coingecko.com/api/v3/coins/{cg_id}/ohlc"
+           f"?vs_currency=usd&days={days}")
+    raw = fetch(url)  # [[ts_ms, o, h, l, c], ...]
+    ohlc = []
+    for row in raw[-25:]:
+        ts_ms, o, h, l, c = row
+        dt = datetime.fromtimestamp(ts_ms / 1000, tz=timezone.utc).strftime("%Y-%m-%d")
+        ohlc.append({"x": dt, "o": round(o,4), "h": round(h,4),
+                     "l": round(l,4), "c": round(c,4)})
+    return ohlc
 
-def get_cg_closes(cg_id, points=30):
-    """CoinGecko market_chart — 30 day daily closes"""
-    url = (f"https://api.coingecko.com/api/v3/coins/{cg_id}/market_chart"
-           f"?vs_currency=usd&days=30&interval=daily")
-    try:
-        data = fetch(url)
-        prices = data["prices"]  # [[timestamp, price], ...]
-        closes = [p[1] for p in prices]
-        return closes[-points:]
-    except Exception:
-        return []
-
-# ── QuickChart URL builder (with MIM watermark as chart title) ──────────────
-def make_chart_url(sym_name, closes, color="#00d4aa"):
-    if not closes or len(closes) < 2:
+# ── QuickChart candlestick ──────────────────────────────────────────────────
+def make_candle_chart_url(sym_name, ohlc_data):
+    """Create a short QuickChart URL using their /chart/create endpoint."""
+    if not ohlc_data:
         return None
-    labels = list(range(len(closes)))
+
     chart_cfg = {
-        "type": "line",
+        "type": "candlestick",
         "data": {
-            "labels": labels,
             "datasets": [{
-                "data": closes,
-                "borderColor": color,
-                "backgroundColor": color.replace(")", ",0.15)").replace("rgb", "rgba") if "rgb" in color else f"{color}26",
-                "borderWidth": 2,
-                "pointRadius": 0,
-                "fill": True,
-                "tension": 0.3
+                "label": sym_name,
+                "data": ohlc_data,
+                "color": {
+                    "up": "rgba(0,212,170,1)",
+                    "down": "rgba(255,71,87,1)",
+                    "unchanged": "rgba(150,150,150,1)"
+                },
+                "borderColor": {
+                    "up": "rgba(0,212,170,1)",
+                    "down": "rgba(255,71,87,1)",
+                    "unchanged": "rgba(150,150,150,1)"
+                }
             }]
         },
         "options": {
-            "legend": {"display": False},
             "title": {
                 "display": True,
-                "text": f"{sym_name}  |  MyInvestmentMarkets",
-                "fontColor": "#cccccc",
+                "text": f"{sym_name} — 30D | MyInvestmentMarkets",
+                "fontColor": "#dddddd",
                 "fontSize": 13
             },
+            "legend": {"display": False},
             "scales": {
-                "xAxes": [{"display": False}],
-                "yAxes": [{"display": True,
-                           "ticks": {"fontColor": "#aaaaaa"},
-                           "gridLines": {"color": "rgba(255,255,255,0.05)"}}]
-            },
-            "layout": {"padding": {"left": 10, "right": 10, "top": 5, "bottom": 5}}
+                "xAxes": [{"ticks": {"fontColor": "#aaa"},
+                           "gridLines": {"color": "rgba(255,255,255,0.05)"}}],
+                "yAxes": [{"ticks": {"fontColor": "#aaa"},
+                           "gridLines": {"color": "rgba(255,255,255,0.08)"}}]
+            }
         }
     }
-    encoded = urllib.parse.quote(json.dumps(chart_cfg))
-    return f"https://quickchart.io/chart?w=700&h=280&bkg=%231a1a2e&c={encoded}"
 
-# ── Decimal precision ───────────────────────────────────────────────────────
+    # Use QuickChart's /chart/create to get a short URL (avoids URL length limits)
+    payload = json.dumps({"chart": chart_cfg, "backgroundColor": "#1a1a2e",
+                          "width": 700, "height": 300}).encode()
+    req = urllib.request.Request(
+        "https://quickchart.io/chart/create",
+        data=payload,
+        headers={"Content-Type": "application/json"}
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=10) as r:
+            result = json.loads(r.read())
+            return result.get("url")
+    except Exception as e:
+        print(f"QuickChart error: {e}")
+        return None
+
+# ── Price helpers ───────────────────────────────────────────────────────────
 def smart_dec(sym_name, price):
     if any(x in sym_name for x in ["US100","US500","US30","DE40","JP225"]):
         return 2
-    if "JPY" in sym_name or "Oil" in sym_name or "NatGas" in sym_name:
+    if "JPY" in sym_name or sym_name in ("WTI Oil","NatGas","Silver"):
         return 3
-    if "/" in sym_name and "USD" in sym_name:
-        # Crypto or Forex
-        if price > 100:
-            return 2
-        elif price > 1:
-            return 4
-        else:
-            return 6
+    if "/" in sym_name:
+        if price > 100:   return 2
+        elif price > 1:   return 4
+        else:             return 6
     return 2
 
-# ── Keyboards ───────────────────────────────────────────────────────────────
-def category_kb():
-    buttons = []
-    row = []
-    for key, cat in CATEGORIES.items():
-        row.append({"text": cat["label"], "callback_data": f"cat:{key}"})
-        if len(row) == 2:
-            buttons.append(row)
-            row = []
-    if row:
-        buttons.append(row)
-    return {"inline_keyboard": buttons}
-
-def symbol_kb(cat_key):
-    cat = CATEGORIES[cat_key]
-    buttons = []
-    row = []
-    for sym in cat["symbols"]:
-        row.append({"text": sym, "callback_data": f"sym:{cat_key}:{sym}"})
-        if len(row) == 2:
-            buttons.append(row)
-            row = []
-    if row:
-        buttons.append(row)
-    buttons.append([
-        {"text": "← Back", "callback_data": "back:categories"},
-        {"text": "✕ Close", "callback_data": "close"}
-    ])
-    return {"inline_keyboard": buttons}
-
-def price_kb(cat_key, sym_name):
-    return {"inline_keyboard": [[
-        {"text": "🔄 Refresh",  "callback_data": f"sym:{cat_key}:{sym_name}"},
-        {"text": "← Back",     "callback_data": f"cat:{cat_key}"},
-        {"text": "✕ Close",   "callback_data": "close"}
-    ]]}
-
-# ── Price + chart builder ───────────────────────────────────────────────────
-MAIN_TEXT = (
-    "📊 <b>MyInvestmentMarkets — Live Prices</b>\n"
-    "━━━━━━━━━━━━━━━━━━━━\n"
-    "Select a category to view live prices and charts:"
-)
-
-def get_price_and_chart(sym_name, cat_key):
+def build_price_data(sym_name, cat_key):
     ticker, source = CATEGORIES[cat_key]["symbols"][sym_name]
-
     try:
         if source == "yf":
-            price, pct, high, low = get_yf(ticker)
-            closes = get_yf_closes(ticker)
-            color = "#00d4aa" if pct >= 0 else "#ff4757"
-        else:  # cg
-            price, pct, high, low = get_cg(ticker)
-            closes = get_cg_closes(ticker)
-            color = "#f7931a"  # Bitcoin orange for crypto
+            price, pct, high, low = get_yf_ticker(ticker)
+            ohlc = get_yf_ohlc(ticker)
+        else:
+            price, pct, high, low = get_cg_ticker(ticker)
+            ohlc = get_cg_ohlc(ticker)
 
-        dec = smart_dec(sym_name, price)
+        dec   = smart_dec(sym_name, price)
         arrow = "🔺" if pct >= 0 else "🔻"
         sign  = "+" if pct >= 0 else ""
 
@@ -303,60 +272,117 @@ def get_price_and_chart(sym_name, cat_key):
             f"Low:    {low:,.{dec}f}\n\n"
             f"<i>MyInvestmentMarkets</i>"
         )
-
-        chart_url = make_chart_url(sym_name, closes, color)
-        return caption, chart_url
-
+        chart_url = make_candle_chart_url(sym_name, ohlc)
+        return caption, chart_url, True
     except Exception as e:
-        return f"⚠️ <b>{sym_name}</b> — fetch error: {e}", None
+        return f"⚠️ <b>{sym_name}</b> error: {e}", None, False
+
+# ── Keyboards ───────────────────────────────────────────────────────────────
+MAIN_TEXT = (
+    "📊 <b>MyInvestmentMarkets — Live Prices</b>\n"
+    "━━━━━━━━━━━━━━━━━━━━\n"
+    "Select a category:"
+)
+
+def category_kb():
+    rows = []
+    row = []
+    for key, cat in CATEGORIES.items():
+        row.append({"text": cat["label"], "callback_data": f"cat:{key}"})
+        if len(row) == 2:
+            rows.append(row); row = []
+    if row: rows.append(row)
+    rows.append([{"text": "✕ Close", "callback_data": "close"}])
+    return {"inline_keyboard": rows}
+
+def symbol_kb(cat_key):
+    cat = CATEGORIES[cat_key]
+    rows = []
+    row = []
+    for sym in cat["symbols"]:
+        row.append({"text": sym, "callback_data": f"sym:{cat_key}:{sym}"})
+        if len(row) == 2:
+            rows.append(row); row = []
+    if row: rows.append(row)
+    rows.append([{"text": "← Back", "callback_data": "back:categories"},
+                 {"text": "✕ Close", "callback_data": "close"}])
+    return {"inline_keyboard": rows}
+
+def price_kb(cat_key, sym_name):
+    return {"inline_keyboard": [[
+        {"text": "🔄 Refresh",  "callback_data": f"sym:{cat_key}:{sym_name}"},
+        {"text": "← Back",     "callback_data": f"cat:{cat_key}"},
+        {"text": "✕ Close",    "callback_data": "close"}
+    ]]}
 
 # ── Callback handler ────────────────────────────────────────────────────────
 def handle_callback(cb):
-    cid     = cb["id"]
-    data    = cb["data"]
-    msg     = cb["message"]
-    chat    = msg["chat"]["id"]
-    mid     = msg["message_id"]
-    thread  = msg.get("message_thread_id")
+    cid    = cb["id"]
+    data   = cb["data"]
+    msg    = cb["message"]
+    chat   = msg["chat"]["id"]
+    mid    = msg["message_id"]
+    thread = msg.get("message_thread_id")
+
+    # Is this a photo message? (has "photo" key in message object)
+    is_photo = bool(msg.get("photo") or msg.get("animation"))
+
+    # Is user clicking the shared pinned portal message?
     is_pinned = (mid == PINNED_MSG_ID)
 
     answer_cb(cid)
 
-    # ── Category selection ─────────────────────────────────────────────────
+    # ── Category menu ──────────────────────────────────────────────────────
     if data.startswith("cat:"):
         cat_key = data[4:]
         text = f"📊 <b>{CATEGORIES[cat_key]['label']}</b>\nSelect a symbol:"
         kb   = symbol_kb(cat_key)
+
         if is_pinned:
+            # Create a fresh per-user session message
             send_text(chat, thread, text, kb)
+        elif is_photo:
+            # Currently showing a chart photo → use editMessageCaption
+            edit_caption(chat, mid, text, kb)
         else:
             edit_text(chat, mid, text, kb)
 
-    # ── Back to categories ─────────────────────────────────────────────────
+    # ── Back to category select ────────────────────────────────────────────
     elif data == "back:categories":
         if not is_pinned:
-            edit_text(chat, mid, MAIN_TEXT + "\n\n<i>MyInvestmentMarkets</i>",
-                      category_kb())
+            if is_photo:
+                edit_caption(chat, mid, MAIN_TEXT, category_kb())
+            else:
+                edit_text(chat, mid, MAIN_TEXT, category_kb())
 
     # ── Symbol price + chart ────────────────────────────────────────────────
     elif data.startswith("sym:"):
         _, cat_key, sym_name = data.split(":", 2)
-        caption, chart_url = get_price_and_chart(sym_name, cat_key)
+        caption, chart_url, ok = build_price_data(sym_name, cat_key)
         kb = price_kb(cat_key, sym_name)
 
-        if chart_url:
-            # Delete current text message and send photo instead
-            if not is_pinned:
-                delete_msg(chat, mid)
-            send_photo(chat, thread or (msg.get("message_thread_id") if is_pinned else thread),
-                       chart_url, caption, kb)
-        else:
-            if is_pinned:
-                send_text(chat, thread, caption, kb)
+        if is_pinned:
+            # New per-user session — send fresh message
+            if chart_url and ok:
+                send_text(chat, thread,
+                          "⏳ Loading chart...", None)
+                # Note: we can't easily send photo on first click from pinned
+                # So send text with chart link preview
+                new_msg = send_text(chat, thread, caption, kb)
             else:
-                edit_text(chat, mid, caption, kb)
+                send_text(chat, thread, caption, kb)
+        else:
+            if chart_url and ok:
+                # Convert message to photo in-place (editMessageMedia)
+                # Same message_id = only this user can interact with it!
+                edit_to_photo(chat, mid, chart_url, caption, kb)
+            else:
+                if is_photo:
+                    edit_caption(chat, mid, caption, kb)
+                else:
+                    edit_text(chat, mid, caption, kb)
 
-    # ── Close (delete user session message) ────────────────────────────────
+    # ── Close ─────────────────────────────────────────────────────────────
     elif data == "close":
         if not is_pinned:
             delete_msg(chat, mid)
