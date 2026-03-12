@@ -211,13 +211,13 @@ def run():
         now_str = datetime.now(KST).strftime("%H:%M KST")
 
         text = (
-            f"🔴 <b>BREAKING — Markets</b>\n\n"
+            f"🔴 <b>BREAKING</b>\n\n"
             f"<b>{item['title']}</b>\n"
         )
         if summary:
             text += f"📌 {summary}\n"
         text += (
-            f"\n🕐 {now_str}  |  📰 {item['source']}\n"
+            f"\n📰 {item['source']}\n"
             f"📎 <a href='{item['link']}'>Read Source</a>"
         )
 
