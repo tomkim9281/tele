@@ -46,7 +46,7 @@ CATEGORIES = {
 # ── Yahoo Finance helper ─────────────────────────────────────────────────────
 def get_data(ticker):
     url = (f"https://query1.finance.yahoo.com/v8/finance/chart/"
-           f"{urllib.parse.quote(ticker)}?interval=1d&range=30d")
+           f"{urllib.parse.quote(ticker)}?interval=1h&range=5d")
     req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
     with urllib.request.urlopen(req, timeout=10) as r:
         resp = json.loads(r.read())
@@ -66,7 +66,7 @@ def get_data(ticker):
         try:
             o, h, l, c = q["open"][i], q["high"][i], q["low"][i], q["close"][i]
             if None in (o, h, l, c): continue
-            dt = datetime.fromtimestamp(ts, tz=timezone.utc).strftime("%Y-%m-%d")
+            dt = datetime.fromtimestamp(ts, tz=timezone.utc).strftime("%Y-%m-%d %H:00")
             if dt in seen: continue
             seen.add(dt)
             ohlc.append({"time": dt, "open": round(o,6), "high": round(h,6),
@@ -182,11 +182,11 @@ async function buildChartImg(ohlc, sym) {
     options: {
       legend: {display: false},
       scales: {
-        x: {type:'time', time:{unit:'day'}, ticks:{color:'#888',maxTicksLimit:6}, grid:{color:'rgba(255,255,255,0.04)'}},
+        x: {type:'time', time:{unit:'hour', displayFormats:{hour:'MM/DD HH:mm'}}, ticks:{color:'#888',maxTicksLimit:8}, grid:{color:'rgba(255,255,255,0.04)'}},
         y: {ticks:{color:'#888'}, grid:{color:'rgba(255,255,255,0.04)'}}
       },
       plugins: {
-        title: {display:true, text:'MIM — '+sym+' 30D Candlestick', color:'#666', font:{size:11}}
+        title: {display:true, text:'MIM — '+sym+' 5D (1H Candles)', color:'#666', font:{size:11}}
       }
     }
   };
