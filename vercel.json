@@ -1,16 +1,8 @@
 {
     "rewrites": [
         {
-            "source": "/api/telegram-webhook",
-            "destination": "/api/telegram-webhook.py"
-        },
-        {
             "source": "/api/(.*)",
             "destination": "/api/$1"
-        },
-        {
-            "source": "/(.*)",
-            "destination": "/index.html"
         }
     ],
     "headers": [
