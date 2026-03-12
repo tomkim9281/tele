@@ -1,0 +1,2 @@
+# Vercel webhook uses stdlib only — no pip packages needed
+# Heavy packages installed per-job in .github/workflows/

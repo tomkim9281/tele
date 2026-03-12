@@ -1,0 +1,23 @@
+name: Daily Market Briefing
+
+on:
+  schedule:
+    # Every weekday at UTC 21:00 = KST 06:00
+    - cron: '0 21 * * 1-5'
+  workflow_dispatch:  # Allow manual trigger
+
+jobs:
+  send-briefing:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: pip install yfinance requests
+      - name: Run Daily Briefing Bot
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: python api/daily-briefing.py

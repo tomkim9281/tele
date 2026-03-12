@@ -1,0 +1,45 @@
+name: Economic Calendar Bot
+
+on:
+  schedule:
+    # Weekly schedule: Every Monday at UTC 00:00 = KST 09:00
+    - cron: '0 0 * * 1'
+    # Event alerts: Every 5 minutes
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'Run mode: weekly or alert'
+        required: true
+        default: 'alert'
+
+jobs:
+  weekly-schedule:
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.mode == 'weekly' || (github.event_name == 'schedule' && github.event.schedule == '0 0 * * 1')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: pip install requests
+      - name: Send Weekly Schedule
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+        run: python api/calendar-bot.py weekly
+
+  event-alerts:
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.mode == 'alert' || (github.event_name == 'schedule' && github.event.schedule == '*/5 * * * *')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: pip install requests
+      - name: Check Event Alerts
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+        run: python api/calendar-bot.py alert
