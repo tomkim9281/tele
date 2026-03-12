@@ -1,10 +1,5 @@
 {
     "outputDirectory": "public",
-    "functions": {
-        "api/*.py": {
-            "runtime": "python3.9"
-        }
-    },
     "headers": [
         {
             "source": "/api/(.*)",
