@@ -84,7 +84,6 @@ HTML = r"""<!DOCTYPE html>
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no">
 <title>MIM Live Quotes</title>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
-<script src="https://unpkg.com/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js"></script>
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 :root{--bg:#0f1117;--card:#1a1d26;--border:rgba(255,255,255,.07);--up:#00d4aa;--dn:#ff4757;--text:#e8e8f0;--muted:#6b6f8a;--accent:#00d4aa}
@@ -111,7 +110,8 @@ header p{font-size:10px;color:var(--muted)}
 #price-card .hl span{color:var(--text)}
 .up{color:var(--up)}.dn{color:var(--dn)}
 #chart-card{margin:0 16px 24px;background:var(--card);border:1px solid var(--border);border-radius:16px;overflow:hidden;display:none}
-#chart-container{width:100%;height:280px}
+#chart-img{width:100%;display:block;border-radius:12px 12px 0 0}
+#chart-loading{padding:60px 0;text-align:center;color:var(--muted);font-size:13px}
 #chart-footer{text-align:center;font-size:10px;color:var(--muted);padding:6px 0}
 #loading{display:none;text-align:center;padding:40px;color:var(--muted);font-size:13px}
 .spinner{width:28px;height:28px;margin:0 auto 10px;border:3px solid rgba(255,255,255,.1);border-left-color:var(--accent);border-radius:50%;animation:spin .8s linear infinite}
@@ -132,7 +132,11 @@ header p{font-size:10px;color:var(--muted)}
   <div class="row1"><div class="sym" id="d-sym">--</div><div><div class="prc" id="d-price">--</div><div class="chg" id="d-chg">--</div></div></div>
   <div class="hl"><div>High &nbsp;<span id="d-high">--</span></div><div>Low &nbsp;<span id="d-low">--</span></div></div>
 </div>
-<div id="chart-card"><div id="chart-container"></div><div id="chart-footer">30D Candlestick | MyInvestmentMarkets</div></div>
+<div id="chart-card">
+  <div id="chart-loading"><div class="spinner"></div>차트 생성 중...</div>
+  <img id="chart-img" src="" alt="Candlestick Chart" style="display:none" />
+  <div id="chart-footer">30D Candlestick | MyInvestmentMarkets (MIM)</div>
+</div>
 <script>
 const tg=window.Telegram&&window.Telegram.WebApp;
 if(tg){tg.expand();tg.ready();}
@@ -143,19 +147,8 @@ const CATS={
   forex:      {label:"외환",    syms:["AUD/CAD","AUD/CHF","AUD/JPY","AUD/NZD","AUD/USD","CAD/JPY","CHF/JPY","EUR/AUD","EUR/CHF","EUR/GBP","EUR/JPY","EUR/USD","GBP/AUD","GBP/JPY","GBP/USD","GBP/CAD","GBP/NZD","NZD/JPY","NZD/USD","USD/CAD","USD/CHF","USD/HKD","USD/JPY","USD/SGD","USD/CNH","USD/THB"]},
   commodities:{label:"원자재",  syms:["Silver","Gold","WTI Crude","Brent Crude","Natural Gas"]}
 };
-let curCat="indices",curSym="US 100",chartObj=null,cSeries=null;
-function initChart(){
-  if(chartObj)return;
-  const el=document.getElementById('chart-container');
-  chartObj=LightweightCharts.createChart(el,{width:el.clientWidth,height:280,
-    layout:{background:{type:'solid',color:'transparent'},textColor:'#888'},
-    grid:{vertLines:{color:'rgba(255,255,255,.03)'},horzLines:{color:'rgba(255,255,255,.03)'}},
-    timeScale:{borderColor:'rgba(255,255,255,.08)',timeVisible:false},
-    rightPriceScale:{borderColor:'rgba(255,255,255,.08)'},
-    handleScroll:true,handleScale:true});
-  cSeries=chartObj.addCandlestickSeries({upColor:'#00d4aa',downColor:'#ff4757',borderVisible:false,wickUpColor:'#00d4aa',wickDownColor:'#ff4757'});
-  window.addEventListener('resize',()=>chartObj.applyOptions({width:el.clientWidth}));
-}
+let curCat="indices",curSym="US 100";
+
 function fmt(sym,v){
   if(v==null||isNaN(v))return'--';
   let d=2;
@@ -163,6 +156,60 @@ function fmt(sym,v){
   if(sym.includes('JPY')||sym==='Silver')d=3;
   return Number(v).toLocaleString('en-US',{minimumFractionDigits:d,maximumFractionDigits:d});
 }
+
+async function buildChartImg(ohlc, sym) {
+  const imgEl = document.getElementById('chart-img');
+  const loadEl = document.getElementById('chart-loading');
+  imgEl.style.display = 'none';
+  loadEl.style.display = 'block';
+
+  // Convert OHLC to QuickChart candlestick format (x = ms timestamp)
+  const data = ohlc.map(c => ({
+    x: new Date(c.time).getTime(),
+    o: c.open, h: c.high, l: c.low, c: c.close
+  }));
+
+  const chartCfg = {
+    type: 'candlestick',
+    data: {
+      datasets: [{
+        label: sym,
+        data: data,
+        color: {up:'rgba(0,212,170,1)', down:'rgba(255,71,87,1)', unchanged:'rgba(136,136,136,1)'},
+        borderColor: {up:'rgba(0,212,170,1)', down:'rgba(255,71,87,1)', unchanged:'rgba(136,136,136,1)'}
+      }]
+    },
+    options: {
+      legend: {display: false},
+      scales: {
+        x: {type:'time', time:{unit:'day'}, ticks:{color:'#888',maxTicksLimit:6}, grid:{color:'rgba(255,255,255,0.04)'}},
+        y: {ticks:{color:'#888'}, grid:{color:'rgba(255,255,255,0.04)'}}
+      },
+      plugins: {
+        title: {display:true, text:'MIM — '+sym+' 30D Candlestick', color:'#666', font:{size:11}}
+      }
+    }
+  };
+
+  try {
+    const resp = await fetch('https://quickchart.io/chart/create', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({width:500, height:260, backgroundColor:'#1a1d26', chart: chartCfg})
+    });
+    const json = await resp.json();
+    if (json.url) {
+      imgEl.onload = () => { loadEl.style.display='none'; imgEl.style.display='block'; };
+      imgEl.onerror = () => { loadEl.textContent='차트를 불러올 수 없습니다.'; };
+      imgEl.src = json.url;
+    } else {
+      loadEl.textContent = '차트 생성 실패';
+    }
+  } catch(e) {
+    loadEl.textContent = '차트 오류: '+e.message;
+  }
+}
+
 async function loadQuote(cat,sym){
   document.getElementById('loading').style.display='block';
   document.getElementById('error-msg').style.display='none';
@@ -181,7 +228,10 @@ async function loadQuote(cat,sym){
     document.getElementById('d-high').textContent=fmt(sym,d.high);
     document.getElementById('d-low').textContent=fmt(sym,d.low);
     document.getElementById('price-card').style.display='block';
-    if(d.ohlc&&d.ohlc.length>1){initChart();cSeries.setData(d.ohlc);chartObj.timeScale().fitContent();document.getElementById('chart-card').style.display='block';}
+    if(d.ohlc&&d.ohlc.length>1){
+      document.getElementById('chart-card').style.display='block';
+      buildChartImg(d.ohlc, sym);  // async, shows spinner while loading
+    }
     if(tg&&tg.HapticFeedback)tg.HapticFeedback.impactOccurred('light');
   }catch(err){
     const e=document.getElementById('error-msg');
