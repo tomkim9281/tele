@@ -42,7 +42,6 @@ HIGH_IMPACT_KEYWORDS = [
 RSS_SOURCES = [
     ("FXStreet",       "https://www.fxstreet.com/rss"),
     ("ForexLive",      "https://www.forexlive.com/feed/news"),
-    ("Investing.com",  "https://www.investing.com/rss/news_285.rss"),
     ("CNBC Markets",   "https://search.cnbc.com/rs/search/combinedcms/view.xml?partnerId=wrss01&id=10000664"),
     ("Cointelegraph",  "https://cointelegraph.com/rss")
 ]
@@ -127,12 +126,31 @@ def fetch_all():
                 # Filter strictly by freshness
                 if pub_d:
                     try:
+                        # 1. Try standard email/RFC2822 format (e.g. Thu, 12 Mar 2026 09:41:03 GMT)
                         dt = parsedate_to_datetime(pub_d)
+                    except Exception:
+                        try:
+                            # 2. Try ISO 8601 fallback
+                            dt = datetime.fromisoformat(pub_d.replace("Z", "+00:00"))
+                        except Exception:
+                            try:
+                                # 3. Try dateutil if installed
+                                from dateutil.parser import parse as dp
+                                dt = dp(pub_d)
+                            except Exception:
+                                print(f"Could not parse date: {pub_d} from {source_name}")
+                                dt = None
+
+                    if dt:
+                        if dt.tzinfo is None:
+                            dt = dt.replace(tzinfo=timezone.utc)
                         age_mins = (now_utc - dt).total_seconds() / 60
                         if age_mins > MAX_AGE_MINUTES or age_mins < -60:
                             continue  # Too old or future-dated
-                    except Exception:
-                        pass # Ignore parse errors and process anyway
+                    else:
+                        continue # Skip items where we completely fail to parse the date to be safe
+                else:
+                    continue # Strict limit: No date = no post (prevent extremely old bumped items)
 
                 items.append({
                     "id": make_id(title, link),
