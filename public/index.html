@@ -1,0 +1,324 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>MIM Live Quotes</title>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <script src="https://unpkg.com/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js"></script>
+    <style>
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+        :root {
+            --bg: #0f1117;
+            --card: #1a1d26;
+            --border: rgba(255,255,255,0.07);
+            --up: #00d4aa;
+            --dn: #ff4757;
+            --text: #e8e8f0;
+            --muted: #6b6f8a;
+            --accent: #00d4aa;
+        }
+        body {
+            background: var(--bg);
+            color: var(--text);
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            overflow-x: hidden;
+            min-height: 100dvh;
+        }
+
+        /* ─── Header ────────────────────────────────── */
+        header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 14px 16px 10px;
+            border-bottom: 1px solid var(--border);
+            position: sticky; top: 0;
+            background: var(--bg);
+            z-index: 99;
+        }
+        header .logo { display: flex; align-items: center; gap: 8px; }
+        header .logo .dot {
+            width: 28px; height: 28px; border-radius: 8px;
+            background: linear-gradient(135deg, #00d4aa, #0066ff);
+            display: flex; align-items: center; justify-content: center;
+            font-size: 14px;
+        }
+        header h1 { font-size: 16px; font-weight: 700; letter-spacing: -0.3px; }
+        header p  { font-size: 10px; color: var(--muted); }
+        #closeBtn { background: none; border: none; color: var(--muted); font-size: 18px; cursor: pointer; padding: 4px; }
+
+        /* ─── Category Tabs ─────────────────────────── */
+        #tabs {
+            display: flex;
+            overflow-x: auto;
+            border-bottom: 1px solid var(--border);
+            padding: 0 8px;
+            scrollbar-width: none;
+        }
+        #tabs::-webkit-scrollbar { display: none; }
+        #tabs button {
+            flex-shrink: 0;
+            background: none; border: none; cursor: pointer;
+            padding: 12px 14px;
+            font-size: 13px; font-weight: 500;
+            color: var(--muted);
+            border-bottom: 2px solid transparent;
+            transition: color 0.2s, border-color 0.2s;
+        }
+        #tabs button.active { color: var(--accent); border-bottom-color: var(--accent); }
+
+        /* ─── Symbols Grid ──────────────────────────── */
+        #symbols {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            padding: 12px 16px;
+        }
+        #symbols button {
+            flex: 1 1 calc(33% - 8px);
+            min-width: 80px; max-width: 160px;
+            padding: 8px 4px;
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            color: var(--text);
+            font-size: 12px; font-weight: 500;
+            cursor: pointer;
+            transition: all 0.15s;
+        }
+        #symbols button.active {
+            background: var(--accent);
+            color: #000;
+            border-color: var(--accent);
+        }
+
+        /* ─── Price Card ────────────────────────────── */
+        #price-card {
+            margin: 0 16px 12px;
+            padding: 16px;
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            display: none;
+        }
+        #price-card .row1 { display: flex; justify-content: space-between; align-items: flex-start; }
+        #price-card .sym  { font-size: 18px; font-weight: 700; }
+        #price-card .prc  { font-size: 22px; font-weight: 700; text-align: right; }
+        #price-card .chg  { font-size: 12px; font-weight: 600; margin-top: 2px; }
+        #price-card .hl   { display: flex; justify-content: space-between; font-size: 11px; color: var(--muted); margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--border); }
+        #price-card .hl span { color: var(--text); }
+        .up { color: var(--up); }
+        .dn { color: var(--dn); }
+
+        /* ─── Chart Card ────────────────────────────── */
+        #chart-card {
+            margin: 0 16px 24px;
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            overflow: hidden;
+            display: none;
+        }
+        #chart-container { width: 100%; height: 280px; }
+        #chart-footer {
+            text-align: center;
+            font-size: 10px;
+            color: var(--muted);
+            padding: 6px 0;
+        }
+
+        /* ─── Loading ───────────────────────────────── */
+        #loading {
+            display: none;
+            text-align: center;
+            padding: 40px;
+            color: var(--muted);
+            font-size: 13px;
+        }
+        .spinner {
+            width: 28px; height: 28px; margin: 0 auto 10px;
+            border: 3px solid rgba(255,255,255,0.1);
+            border-left-color: var(--accent);
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        #error-msg { display: none; text-align: center; padding: 20px; color: var(--dn); font-size: 13px; }
+    </style>
+</head>
+<body>
+
+<header>
+    <div class="logo">
+        <div class="dot">📊</div>
+        <div>
+            <h1>MIM Live Quotes</h1>
+            <p>MyInvestmentMarkets</p>
+        </div>
+    </div>
+    <button id="closeBtn" onclick="Telegram.WebApp.close()">✕</button>
+</header>
+
+<div id="tabs"></div>
+<div id="symbols"></div>
+
+<div id="loading"><div class="spinner"></div>불러오는 중...</div>
+<div id="error-msg"></div>
+
+<div id="price-card">
+    <div class="row1">
+        <div class="sym" id="d-sym">--</div>
+        <div><div class="prc" id="d-price">--</div><div class="chg" id="d-chg">--</div></div>
+    </div>
+    <div class="hl">
+        <div>High &nbsp;<span id="d-high">--</span></div>
+        <div>Low &nbsp;<span id="d-low">--</span></div>
+    </div>
+</div>
+
+<div id="chart-card">
+    <div id="chart-container"></div>
+    <div id="chart-footer">30D Candlestick | MyInvestmentMarkets</div>
+</div>
+
+<script>
+// ── Init Telegram WebApp ──────────────────────────────────────────────────
+const tg = window.Telegram && window.Telegram.WebApp;
+if (tg) { tg.expand(); tg.ready(); }
+
+// ── Categories & Symbols ─────────────────────────────────────────────────
+const CATS = {
+    stocks:      { label: "주식",     syms: ["AAPL","AMZN","GOOG","MSFT","NFLX","TSLA","AMD","GOOGL","NVDA","META"] },
+    indices:     { label: "지수",     syms: ["EURO 50","US 30","HK 50","JP 225","UK 100","US 100","US 500"] },
+    crypto:      { label: "암호화폐", syms: ["BTC/USD","ETH/USD","XRP/USD","DOGE/USD","SOL/USD"] },
+    forex:       { label: "외환",     syms: ["AUD/CAD","AUD/CHF","AUD/JPY","AUD/NZD","AUD/USD","CAD/JPY","CHF/JPY","EUR/AUD","EUR/CHF","EUR/GBP","EUR/JPY","EUR/USD","GBP/AUD","GBP/JPY","GBP/USD","GBP/CAD","GBP/NZD","NZD/JPY","NZD/USD","USD/CAD","USD/CHF","USD/HKD","USD/JPY","USD/SGD","USD/CNH","USD/THB"] },
+    commodities: { label: "원자재",   syms: ["Silver","Gold","WTI Crude","Brent Crude","Natural Gas"] }
+};
+
+let curCat = "indices";
+let curSym = "US 100";
+let chartObj = null;
+let cSeries  = null;
+
+// ── Chart init ────────────────────────────────────────────────────────────
+function initChart() {
+    if (chartObj) return;
+    const el = document.getElementById('chart-container');
+    chartObj = LightweightCharts.createChart(el, {
+        width:  el.clientWidth,
+        height: 280,
+        layout:           { background: { type: 'solid', color: 'transparent' }, textColor: '#888' },
+        grid:             { vertLines: { color: 'rgba(255,255,255,0.03)' }, horzLines: { color: 'rgba(255,255,255,0.03)' } },
+        timeScale:        { borderColor: 'rgba(255,255,255,0.08)', timeVisible: false },
+        rightPriceScale:  { borderColor: 'rgba(255,255,255,0.08)' },
+        handleScroll:     true,
+        handleScale:      true,
+    });
+    cSeries = chartObj.addCandlestickSeries({
+        upColor: '#00d4aa', downColor: '#ff4757',
+        borderVisible: false,
+        wickUpColor: '#00d4aa', wickDownColor: '#ff4757',
+    });
+    window.addEventListener('resize', () => chartObj.applyOptions({ width: el.clientWidth }));
+}
+
+// ── Format price ──────────────────────────────────────────────────────────
+function fmt(sym, v) {
+    if (v == null || isNaN(v)) return '--';
+    let d = 2;
+    if (v < 0.01)  d = 6;
+    else if (v < 1) d = 5;
+    else if (v < 10) d = 4;
+    else if (v > 1000) d = 2;
+    if (sym.includes('JPY') || sym === 'Silver') d = 3;
+    return Number(v).toLocaleString('en-US', { minimumFractionDigits: d, maximumFractionDigits: d });
+}
+
+// ── Fetch quote ───────────────────────────────────────────────────────────
+async function loadQuote(cat, sym) {
+    document.getElementById('loading').style.display = 'block';
+    document.getElementById('error-msg').style.display = 'none';
+    document.getElementById('price-card').style.display = 'none';
+    document.getElementById('chart-card').style.display = 'none';
+
+    try {
+        const url = `/api/quote?cat=${encodeURIComponent(cat)}&sym=${encodeURIComponent(sym)}`;
+        const res = await fetch(url);
+        const d   = await res.json();
+
+        if (d.error) throw new Error(d.error);
+
+        // Price card
+        document.getElementById('d-sym').textContent   = sym;
+        document.getElementById('d-price').textContent = fmt(sym, d.price);
+        const pct = Number(d.change_pct || 0);
+        const chgEl = document.getElementById('d-chg');
+        chgEl.textContent = (pct >= 0 ? '+' : '') + pct.toFixed(2) + '% ' + (pct >= 0 ? '▲' : '▼');
+        chgEl.className = 'chg ' + (pct >= 0 ? 'up' : 'dn');
+        document.getElementById('d-high').textContent = fmt(sym, d.high);
+        document.getElementById('d-low').textContent  = fmt(sym, d.low);
+        document.getElementById('price-card').style.display = 'block';
+
+        // Chart
+        if (d.ohlc && d.ohlc.length > 1) {
+            initChart();
+            cSeries.setData(d.ohlc);
+            chartObj.timeScale().fitContent();
+            document.getElementById('chart-card').style.display = 'block';
+        }
+
+        if (tg && tg.HapticFeedback) tg.HapticFeedback.impactOccurred('light');
+
+    } catch (err) {
+        const errEl = document.getElementById('error-msg');
+        errEl.textContent = '⚠️ ' + sym + ' 데이터를 불러올 수 없습니다. (' + err.message + ')';
+        errEl.style.display = 'block';
+    } finally {
+        document.getElementById('loading').style.display = 'none';
+    }
+}
+
+// ── Render tabs ───────────────────────────────────────────────────────────
+function renderTabs() {
+    const el = document.getElementById('tabs');
+    el.innerHTML = '';
+    Object.keys(CATS).forEach(key => {
+        const btn = document.createElement('button');
+        btn.textContent = CATS[key].label;
+        if (key === curCat) btn.className = 'active';
+        btn.onclick = () => {
+            curCat = key;
+            curSym = CATS[key].syms[0];
+            renderTabs();
+            renderSymbols();
+            loadQuote(curCat, curSym);
+        };
+        el.appendChild(btn);
+    });
+}
+
+// ── Render symbol buttons ─────────────────────────────────────────────────
+function renderSymbols() {
+    const el = document.getElementById('symbols');
+    el.innerHTML = '';
+    CATS[curCat].syms.forEach(sym => {
+        const btn = document.createElement('button');
+        btn.textContent = sym;
+        if (sym === curSym) btn.className = 'active';
+        btn.onclick = () => {
+            curSym = sym;
+            renderSymbols();
+            loadQuote(curCat, curSym);
+        };
+        el.appendChild(btn);
+    });
+}
+
+// ── Init ──────────────────────────────────────────────────────────────────
+renderTabs();
+renderSymbols();
+loadQuote(curCat, curSym);
+</script>
+</body>
+</html>
