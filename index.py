@@ -1,49 +1,62 @@
 """
 MyInvestmentMarkets Bot — WSGI entry point
 
-Session isolation:
-  callback_data embeds owner user_id → only owner can control their session
-  e.g. "cat_u:indices:12345678" → bot checks from.id == 12345678
+ARCHITECTURE: DM-based sessions
+  - Group portal message has buttons → user clicks
+  - Bot sends DM to that user privately (nobody else sees it)
+  - All price interaction happens in user's private chat
+  - True privacy: other group members never see any price queries
 
-Price data:
-  Yahoo Finance for indices/forex/commodities
-  CoinGecko for crypto (Binance blocked on Vercel US servers)
+SPEED: Vercel Hobby has 10s function timeout
+  - Price fetch: Yahoo Finance meta (fast ~1s)
+  - Chart: QuickChart direct GET URL embedded in text (no /chart/create POST)
+  - Telegram link preview shows chart image automatically
 
-Charts:
-  QuickChart.io candlestick, short URL via /chart/create
-  MIM watermark in chart title
+CRYPTO: CoinGecko API (Binance blocked on Vercel US East servers)
 """
 
 import json
 import os
 import urllib.request
 import urllib.parse
-from datetime import datetime, timezone
 
 BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
 BASE_URL = f"https://api.telegram.org/bot{BOT_TOKEN}"
 
-PINNED_MSG_ID = 36   # shared portal in Market Quotes room
+# Get bot username at module load time (used for DM start link)
+_BOT_USERNAME = None
+def get_bot_username():
+    global _BOT_USERNAME
+    if _BOT_USERNAME:
+        return _BOT_USERNAME
+    try:
+        req = urllib.request.Request(f"{BASE_URL}/getMe")
+        with urllib.request.urlopen(req, timeout=5) as r:
+            result = json.loads(r.read())
+            _BOT_USERNAME = result["result"].get("username", "")
+            return _BOT_USERNAME
+    except Exception:
+        return ""
 
 CATEGORIES = {
     "indices": {
         "label": "📈 Indices",
         "symbols": {
-            "US100":  ("^NDX",    "yf"),
-            "US500":  ("^GSPC",   "yf"),
-            "US30":   ("^DJI",    "yf"),
-            "DE40":   ("^GDAXI",  "yf"),
-            "JP225":  ("^N225",   "yf"),
+            "US100": ("^NDX",    "yf"),
+            "US500": ("^GSPC",   "yf"),
+            "US30":  ("^DJI",    "yf"),
+            "DE40":  ("^GDAXI",  "yf"),
+            "JP225": ("^N225",   "yf"),
         }
     },
     "forex": {
         "label": "💱 Forex",
         "symbols": {
-            "EUR/USD": ("EURUSD=X", "yf"),
-            "GBP/USD": ("GBPUSD=X", "yf"),
-            "USD/JPY": ("JPY=X",    "yf"),
-            "AUD/USD": ("AUDUSD=X", "yf"),
-            "USD/CAD": ("CAD=X",    "yf"),
+            "EURUSD": ("EURUSD=X", "yf"),
+            "GBPUSD": ("GBPUSD=X", "yf"),
+            "USDJPY": ("JPY=X",    "yf"),
+            "AUDUSD": ("AUDUSD=X", "yf"),
+            "USDCAD": ("CAD=X",    "yf"),
         }
     },
     "crypto": {
@@ -58,10 +71,10 @@ CATEGORIES = {
     "commodities": {
         "label": "🥇 Commodities",
         "symbols": {
-            "Gold":    ("GC=F",  "yf"),
-            "Silver":  ("SI=F",  "yf"),
-            "WTI":     ("CL=F",  "yf"),
-            "NatGas":  ("NG=F",  "yf"),
+            "Gold":   ("GC=F", "yf"),
+            "Silver": ("SI=F", "yf"),
+            "WTI":    ("CL=F", "yf"),
+            "Gas":    ("NG=F", "yf"),
         }
     }
 }
@@ -74,61 +87,42 @@ def tg(method, payload):
         headers={"Content-Type": "application/json"}
     )
     try:
-        with urllib.request.urlopen(req, timeout=12) as r:
+        with urllib.request.urlopen(req, timeout=10) as r:
             return json.loads(r.read())
     except Exception as e:
         print(f"TG [{method}] error: {e}")
-        return {}
+        return {"ok": False}
 
-def answer_cb(cid, text=None, show_alert=False):
+def answer_cb(cid, text=None, alert=False):
     p = {"callback_query_id": cid}
     if text:
         p["text"] = text
-        p["show_alert"] = show_alert
+        p["show_alert"] = alert
     tg("answerCallbackQuery", p)
 
-def send_text(chat, thread, text, kb=None):
-    p = {"chat_id": chat, "text": text,
-         "parse_mode": "HTML", "disable_web_page_preview": True}
-    if thread:
-        p["message_thread_id"] = thread
+def send_dm(user_id, text, kb=None):
+    """Send a private message directly to user. user_id == dm chat_id in Telegram."""
+    p = {"chat_id": user_id, "text": text,
+         "parse_mode": "HTML", "disable_web_page_preview": False}
     if kb:
         p["reply_markup"] = kb
     return tg("sendMessage", p)
 
-def edit_text(chat, mid, text, kb=None):
-    p = {"chat_id": chat, "message_id": mid,
+def edit_dm(user_id, msg_id, text, kb=None):
+    p = {"chat_id": user_id, "message_id": msg_id,
          "text": text, "parse_mode": "HTML",
-         "disable_web_page_preview": True}
+         "disable_web_page_preview": False}
     if kb:
         p["reply_markup"] = kb
     return tg("editMessageText", p)
 
-def edit_to_photo(chat, mid, url, caption, kb=None):
-    """Convert any message (text or photo) to photo in-place — same message_id!"""
-    p = {
-        "chat_id": chat, "message_id": mid,
-        "media": {"type": "photo", "media": url,
-                  "caption": caption, "parse_mode": "HTML"}
-    }
-    if kb:
-        p["reply_markup"] = kb
-    return tg("editMessageMedia", p)
-
-def edit_caption(chat, mid, caption, kb=None):
-    p = {"chat_id": chat, "message_id": mid,
-         "caption": caption, "parse_mode": "HTML"}
-    if kb:
-        p["reply_markup"] = kb
-    return tg("editMessageCaption", p)
-
-def delete_msg(chat, mid):
-    tg("deleteMessage", {"chat_id": chat, "message_id": mid})
+def delete_dm(user_id, msg_id):
+    tg("deleteMessage", {"chat_id": user_id, "message_id": msg_id})
 
 # ── Price data ──────────────────────────────────────────────────────────────
 def fetch(url):
     req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
-    with urllib.request.urlopen(req, timeout=10) as r:
+    with urllib.request.urlopen(req, timeout=8) as r:
         return json.loads(r.read())
 
 def get_yf_price(symbol):
@@ -142,159 +136,154 @@ def get_yf_price(symbol):
     low   = meta.get("regularMarketDayLow",  price)
     return price, pct, high, low
 
-def get_yf_ohlc(symbol, days=30):
-    url = (f"https://query1.finance.yahoo.com/v8/finance/chart/"
-           f"{urllib.parse.quote(symbol)}?interval=1d&range={days}d")
-    result = fetch(url)["chart"]["result"][0]
-    # ← FIX: Yahoo Finance key is "timestamp" NOT "timestamps"
-    timestamps = result.get("timestamp") or result.get("timestamps", [])
-    q = result["indicators"]["quote"][0]
-    ohlc = []
-    for i, ts in enumerate(timestamps):
-        try:
-            o, h, l, c = q["open"][i], q["high"][i], q["low"][i], q["close"][i]
-            if None not in (o, h, l, c):
-                dt = datetime.fromtimestamp(ts, tz=timezone.utc).strftime("%Y-%m-%d")
-                ohlc.append({"x": dt, "o": round(o,4), "h": round(h,4),
-                             "l": round(l,4), "c": round(c,4)})
-        except Exception:
-            continue
-    return ohlc[-25:]
-
 def get_cg_price(cg_id):
-    url = (f"https://api.coingecko.com/api/v3/simple/price"
-           f"?ids={cg_id}&vs_currencies=usd"
-           f"&include_24hr_change=true&include_high_24h=true&include_low_24h=true")
+    url = (f"https://api.coingecko.com/api/v3/simple/price?ids={cg_id}"
+           f"&vs_currencies=usd&include_24hr_change=true"
+           f"&include_high_24h=true&include_low_24h=true")
     d = fetch(url)[cg_id]
     return (d["usd"], d.get("usd_24h_change", 0),
             d.get("usd_24h_high", d["usd"]), d.get("usd_24h_low", d["usd"]))
 
-def get_cg_ohlc(cg_id):
-    url = f"https://api.coingecko.com/api/v3/coins/{cg_id}/ohlc?vs_currency=usd&days=30"
-    raw = fetch(url)
-    ohlc = []
-    for row in raw[-25:]:
-        ts_ms, o, h, l, c = row
-        dt = datetime.fromtimestamp(ts_ms/1000, tz=timezone.utc).strftime("%Y-%m-%d")
-        ohlc.append({"x": dt, "o": round(o,4), "h": round(h,4),
-                     "l": round(l,4), "c": round(c,4)})
-    return ohlc
+# ── QuickChart line chart (fast GET URL, no API roundtrip) ──────────────────
+def make_line_chart_url(sym, ticker, source):
+    """
+    Fetch 30-day close prices and build a QuickChart GET URL.
+    Uses line chart (fast, compact JSON) for Telegram link preview.
+    MIM watermark in chart title.
+    """
+    try:
+        if source == "yf":
+            url = (f"https://query1.finance.yahoo.com/v8/finance/chart/"
+                   f"{urllib.parse.quote(ticker)}?interval=1d&range=30d")
+            result = fetch(url)["chart"]["result"][0]
+            # 'timestamp' key (no trailing s) — fixed
+            timestamps = result.get("timestamp") or result.get("timestamps", [])
+            closes = result["indicators"]["quote"][0]["close"]
+            closes = [c for c in closes if c is not None][-20:]
+        else:
+            url = (f"https://api.coingecko.com/api/v3/coins/{ticker}/market_chart"
+                   f"?vs_currency=usd&days=20&interval=daily")
+            data = fetch(url)
+            closes = [p[1] for p in data["prices"]][-20:]
 
-# ── QuickChart candlestick (short URL) ─────────────────────────────────────
-def make_chart_url(sym_name, ohlc):
-    if not ohlc:
-        return None
-    cfg = {
-        "type": "candlestick",
-        "data": {"datasets": [{
-            "label": sym_name,
-            "data": ohlc,
-            "color": {"up": "#00d4aa", "down": "#ff4757", "unchanged": "#888"}
-        }]},
-        "options": {
-            "title": {"display": True,
-                      "text": f"{sym_name} — 30D | MyInvestmentMarkets",
-                      "fontColor": "#ddd", "fontSize": 13},
-            "legend": {"display": False},
-            "scales": {
-                "xAxes": [{"ticks": {"fontColor": "#aaa", "maxTicksLimit": 6},
-                            "gridLines": {"color": "rgba(255,255,255,0.05)"}}],
-                "yAxes": [{"ticks": {"fontColor": "#aaa"},
-                            "gridLines": {"color": "rgba(255,255,255,0.08)"}}]
+        if len(closes) < 2:
+            return None
+
+        color = "#00d4aa" if closes[-1] >= closes[0] else "#ff4757"
+
+        cfg = {
+            "type": "line",
+            "data": {
+                "labels": list(range(len(closes))),
+                "datasets": [{
+                    "data": [round(c, 4) for c in closes],
+                    "borderColor": color,
+                    "backgroundColor": color + "22",
+                    "borderWidth": 2,
+                    "pointRadius": 0,
+                    "fill": True,
+                    "tension": 0.3
+                }]
+            },
+            "options": {
+                "title": {"display": True,
+                          "text": f"{sym} — 20D | MyInvestmentMarkets",
+                          "fontColor": "#ddd", "fontSize": 12},
+                "legend": {"display": False},
+                "scales": {
+                    "xAxes": [{"display": False}],
+                    "yAxes": [{"display": True,
+                               "ticks": {"fontColor": "#aaa", "maxTicksLimit": 4},
+                               "gridLines": {"color": "rgba(255,255,255,0.07)"}}]
+                }
             }
         }
-    }
-    body = json.dumps({"chart": cfg, "backgroundColor": "#1a1a2e",
-                       "width": 700, "height": 320}).encode()
-    req = urllib.request.Request(
-        "https://quickchart.io/chart/create", data=body,
-        headers={"Content-Type": "application/json"}
-    )
-    try:
-        with urllib.request.urlopen(req, timeout=12) as r:
-            return json.loads(r.read()).get("url")
+        encoded = urllib.parse.quote(json.dumps(cfg, separators=(',', ':')))
+        return f"https://quickchart.io/chart?w=600&h=240&bkg=%231a1a2e&c={encoded}"
     except Exception as e:
-        print(f"QuickChart error: {e}")
+        print(f"Chart error [{sym}]: {e}")
         return None
 
-# ── Price builder ───────────────────────────────────────────────────────────
+# ── Price text builder ──────────────────────────────────────────────────────
 def smart_dec(sym, price):
     if any(x in sym for x in ["US100","US500","US30","DE40","JP225"]): return 2
-    if "JPY" in sym: return 3
+    if sym in ("USDJPY",): return 3
     if price > 1000: return 2
     if price > 1:    return 4
     return 6
 
-def build_price(sym_name, cat_key):
+def build_price_text(sym_name, cat_key):
     ticker, source = CATEGORIES[cat_key]["symbols"][sym_name]
     try:
         if source == "yf":
             price, pct, high, low = get_yf_price(ticker)
-            ohlc = get_yf_ohlc(ticker)
         else:
             price, pct, high, low = get_cg_price(ticker)
-            ohlc = get_cg_ohlc(ticker)
 
         dec   = smart_dec(sym_name, price)
         arrow = "🔺" if pct >= 0 else "🔻"
         sign  = "+" if pct >= 0 else ""
-        caption = (
+
+        chart_url = make_line_chart_url(sym_name, ticker, source)
+
+        text = (
             f"📊 <b>{sym_name}</b>\n"
             f"━━━━━━━━━━━━━━━━━━━━\n"
             f"Price:  <b>{price:,.{dec}f}</b>\n"
             f"Change: <b>{sign}{pct:.2f}%</b> {arrow}\n"
             f"High:   {high:,.{dec}f}\n"
-            f"Low:    {low:,.{dec}f}\n\n"
-            f"<i>MyInvestmentMarkets</i>"
+            f"Low:    {low:,.{dec}f}\n"
         )
-        chart_url = make_chart_url(sym_name, ohlc)
-        return caption, chart_url
-    except Exception as e:
-        return f"⚠️ <b>{sym_name}</b> — fetch error: {e}", None
+        if chart_url:
+            text += f'\n<a href="{chart_url}">📈 20-Day Chart | MyInvestmentMarkets</a>\n'
+        else:
+            text += "\n<i>MyInvestmentMarkets</i>\n"
 
-# ── Keyboards with user_id ownership (64 byte limit safe) ──────────────────
+        return text
+    except Exception as e:
+        return f"⚠️ <b>{sym_name}</b> — error: {e}"
+
+# ── Keyboards (all use uid → DM chat_id, not group chat_id) ────────────────
 def category_kb(uid):
     rows = []
     row = []
     for key, cat in CATEGORIES.items():
-        row.append({"text": cat["label"], "callback_data": f"cat_u:{key}:{uid}"})
+        row.append({"text": cat["label"], "callback_data": f"c:{key}:{uid}"})
         if len(row) == 2:
             rows.append(row); row = []
     if row: rows.append(row)
-    rows.append([{"text": "✕ Close", "callback_data": f"close_u:{uid}"}])
+    rows.append([{"text": "✕ Close", "callback_data": f"x:{uid}"}])
     return {"inline_keyboard": rows}
 
 def symbol_kb(cat_key, uid):
     rows = []
     row = []
     for sym in CATEGORIES[cat_key]["symbols"]:
-        row.append({"text": sym, "callback_data": f"sym_u:{cat_key}:{sym}:{uid}"})
+        row.append({"text": sym, "callback_data": f"s:{cat_key}:{sym}:{uid}"})
         if len(row) == 2:
             rows.append(row); row = []
     if row: rows.append(row)
     rows.append([
-        {"text": "← Back", "callback_data": f"back_u:{uid}"},
-        {"text": "✕ Close", "callback_data": f"close_u:{uid}"}
+        {"text": "← Back", "callback_data": f"b:{uid}"},
+        {"text": "✕ Close", "callback_data": f"x:{uid}"}
     ])
     return {"inline_keyboard": rows}
 
 def price_kb(cat_key, sym_name, uid):
     return {"inline_keyboard": [[
-        {"text": "🔄 Refresh", "callback_data": f"sym_u:{cat_key}:{sym_name}:{uid}"},
-        {"text": "← Back",    "callback_data": f"cat_u:{cat_key}:{uid}"},
-        {"text": "✕ Close",   "callback_data": f"close_u:{uid}"}
+        {"text": "🔄 Refresh",  "callback_data": f"s:{cat_key}:{sym_name}:{uid}"},
+        {"text": "← Back",     "callback_data": f"c:{cat_key}:{uid}"},
+        {"text": "✕ Close",    "callback_data": f"x:{uid}"}
     ]]}
 
-# ── Portal keyboard (shared pinned message — no uid, anyone can start) ──────
+# Portal keyboard for shared group message (no uid — anyone taps)
 def portal_kb():
-    rows = []
-    row = []
-    for key, cat in CATEGORIES.items():
-        row.append({"text": cat["label"], "callback_data": f"start:{key}"})
-        if len(row) == 2:
-            rows.append(row); row = []
-    if row: rows.append(row)
-    return {"inline_keyboard": rows}
+    return {"inline_keyboard": [
+        [{"text": "📈 Indices",     "callback_data": "go:indices"},
+         {"text": "💱 Forex",       "callback_data": "go:forex"}],
+        [{"text": "₿ Crypto",       "callback_data": "go:crypto"},
+         {"text": "🥇 Commodities", "callback_data": "go:commodities"}]
+    ]}
 
 MAIN_TEXT = (
     "📊 <b>MyInvestmentMarkets — Live Prices</b>\n"
@@ -307,68 +296,59 @@ def handle_callback(cb):
     cid    = cb["id"]
     data   = cb["data"]
     msg    = cb["message"]
-    chat   = msg["chat"]["id"]
+    chat   = msg["chat"]["id"]       # group chat id
     mid    = msg["message_id"]
     thread = msg.get("message_thread_id")
-    uid    = str(cb["from"]["id"])    # current user's Telegram ID
-    is_photo = bool(msg.get("photo"))
+    uid    = cb["from"]["id"]        # Telegram user id (int)
+    uid_s  = str(uid)
 
-    # ── PORTAL CLICK (shared pinned message) → start per-user session ──────
-    if data.startswith("start:"):
-        cat_key = data[6:]
+    # ── GROUP PORTAL: open DM session ─────────────────────────────────────
+    if data.startswith("go:"):
+        cat_key = data[3:]
         answer_cb(cid)
         text = f"📊 <b>{CATEGORIES[cat_key]['label']}</b>\nSelect a symbol:"
-        # Send a NEW message owned by this user
-        send_text(chat, thread, text, symbol_kb(cat_key, uid))
+
+        result = send_dm(uid, text, symbol_kb(cat_key, uid_s))
+        if not result.get("ok"):
+            # User hasn't started bot in DM
+            bot_user = get_bot_username()
+            answer_cb(cid,
+                f"⚠️ Please start the bot first!\n👉 t.me/{bot_user}?start=1\n"
+                f"Then tap the button again.",
+                alert=True)
         return
 
-    # ── OWNED ACTIONS (check uid matches) ──────────────────────────────────
-    # Extract owner_uid from callback_data
+    # ── DM SESSION ACTIONS (all in user's private chat) ─────────────────
+    # callback_data format: "c:cat:uid", "s:cat:sym:uid", "b:uid", "x:uid"
     parts = data.split(":")
     action = parts[0]
+    owner_uid = parts[-1]
 
-    # Ownership check
-    owner_uid = parts[-1]   # always the last segment for _u actions
-    if owner_uid != uid:
-        answer_cb(cid, "⚠️ This is not your session. Click the main buttons above to start your own.", show_alert=True)
+    # Ownership check — only the DM owner can control their session
+    if owner_uid != uid_s:
+        answer_cb(cid, "⚠️ This is not your session.", alert=True)
         return
 
     answer_cb(cid)
 
-    if action == "cat_u":
+    if action == "c":       # category
         cat_key = parts[1]
-        text = f"📊 <b>{CATEGORIES[cat_key]['label']}</b>\nSelect a symbol:"
-        if is_photo:
-            edit_caption(chat, mid, text, symbol_kb(cat_key, uid))
-        else:
-            edit_text(chat, mid, text, symbol_kb(cat_key, uid))
+        edit_dm(uid, mid, f"📊 <b>{CATEGORIES[cat_key]['label']}</b>\nSelect a symbol:",
+                symbol_kb(cat_key, uid_s))
 
-    elif action == "back_u":
-        if is_photo:
-            edit_caption(chat, mid, MAIN_TEXT, category_kb(uid))
-        else:
-            edit_text(chat, mid, MAIN_TEXT, category_kb(uid))
+    elif action == "b":     # back to category menu
+        edit_dm(uid, mid, MAIN_TEXT, category_kb(uid_s))
 
-    elif action == "sym_u":
+    elif action == "s":     # symbol price
         cat_key  = parts[1]
         sym_name = parts[2]
-        caption, chart_url = build_price(sym_name, cat_key)
-        kb = price_kb(cat_key, sym_name, uid)
+        text = build_price_text(sym_name, cat_key)
+        edit_dm(uid, mid, text, price_kb(cat_key, sym_name, uid_s))
 
-        if chart_url:
-            # Convert in-place to photo via editMessageMedia (same message_id!)
-            edit_to_photo(chat, mid, chart_url, caption, kb)
-        else:
-            # Fallback to text if chart unavailable
-            if is_photo:
-                edit_caption(chat, mid, caption, kb)
-            else:
-                edit_text(chat, mid, caption, kb)
+    elif action == "x":     # close session
+        delete_dm(uid, mid)
 
-    elif action == "close_u":
-        delete_msg(chat, mid)
-
-# ── WSGI ───────────────────────────────────────────────────────────────────
+# ── WSGI app ────────────────────────────────────────────────────────────────
 def app(environ, start_response):
     path   = environ.get("PATH_INFO", "/")
     method = environ.get("REQUEST_METHOD", "GET")
