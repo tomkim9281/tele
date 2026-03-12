@@ -195,7 +195,7 @@ async function buildChartImg(ohlc, sym) {
     const resp = await fetch('https://quickchart.io/chart/create', {
       method: 'POST',
       headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({width:500, height:260, backgroundColor:'#1a1d26', chart: chartCfg})
+      body: JSON.stringify({width:500, height:260, backgroundColor:'#1a1d26', version:3, chart: chartCfg})
     });
     const json = await resp.json();
     if (json.url) {
