@@ -1,15 +1,16 @@
 """
-Vercel serverless function: GET /api/quote?cat=...&sym=...
-Returns JSON: price, change_pct, high, low, ohlc[]
-All data from Yahoo Finance (reliable, correct date ordering for charts).
+Vercel Serverless Function: GET /api/quote?cat=...&sym=...
+Returns JSON: {price, change_pct, high, low, ohlc[]}
+All data from Yahoo Finance.
 """
 
 import json
 import urllib.request
 import urllib.parse
 from datetime import datetime, timezone
+from http.server import BaseHTTPRequestHandler
 
-# ── Symbol map: display_name → yahoo_ticker ─────────────────────────────────
+# Symbol map: display_name → yahoo_ticker
 CATEGORIES = {
     "stocks": {
         "AAPL": "AAPL", "AMZN": "AMZN", "GOOG": "GOOG", "MSFT": "MSFT",
@@ -44,11 +45,11 @@ CATEGORIES = {
         "USD/CNH": "USDCNH=X", "USD/THB": "USDTHB=X"
     },
     "commodities": {
-        "Silver":       "SI=F",
-        "Gold":         "GC=F",
-        "WTI Crude":    "CL=F",
-        "Brent Crude":  "BZ=F",
-        "Natural Gas":  "NG=F"
+        "Silver":      "SI=F",
+        "Gold":        "GC=F",
+        "WTI Crude":   "CL=F",
+        "Brent Crude": "BZ=F",
+        "Natural Gas": "NG=F"
     }
 }
 
@@ -75,8 +76,8 @@ def get_data(ticker):
     timestamps = result.get("timestamp") or result.get("timestamps", [])
     q = result["indicators"]["quote"][0]
 
-    seen_dates = set()
-    ohlc = []
+    seen = set()
+    ohlc  = []
     for i, ts in enumerate(timestamps):
         try:
             o = q["open"][i];  h = q["high"][i]
@@ -84,42 +85,45 @@ def get_data(ticker):
             if None in (o, h, l, c):
                 continue
             dt = datetime.fromtimestamp(ts, tz=timezone.utc).strftime("%Y-%m-%d")
-            if dt in seen_dates:        # deduplicate dates (chart requires unique ascending)
+            if dt in seen:
                 continue
-            seen_dates.add(dt)
+            seen.add(dt)
             ohlc.append({"time": dt,
-                         "open": round(o, 6), "high": round(h, 6),
-                         "low":  round(l, 6), "close": round(c, 6)})
+                         "open":  round(o, 6), "high": round(h, 6),
+                         "low":   round(l, 6), "close": round(c, 6)})
         except Exception:
             pass
 
     return {"price": price, "change_pct": pct, "high": high, "low": low, "ohlc": ohlc}
 
 
-def handler(request):
-    """Vercel serverless handler (http.server style)."""
-    try:
-        params = dict(urllib.parse.parse_qs(request.query))
-        cat = params.get("cat", [""])[0]
-        sym = params.get("sym", [""])[0]
+class handler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        try:
+            qs     = urllib.parse.urlparse(self.path).query
+            params = urllib.parse.parse_qs(qs)
+            cat    = params.get("cat", [""])[0]
+            sym    = params.get("sym", [""])[0]
 
-        if cat not in CATEGORIES or sym not in CATEGORIES[cat]:
-            return {"statusCode": 400,
-                    "body": json.dumps({"error": f"Unknown: cat={cat} sym={sym}"}),
-                    "headers": {"Content-Type": "application/json",
-                                "Access-Control-Allow-Origin": "*"}}
+            if cat not in CATEGORIES or sym not in CATEGORIES[cat]:
+                body = json.dumps({"error": f"Unknown cat={cat} sym={sym}"}).encode()
+                self.send_response(400)
+            else:
+                ticker = CATEGORIES[cat][sym]
+                data   = get_data(ticker)
+                data["symbol"] = sym
+                body = json.dumps(data).encode()
+                self.send_response(200)
 
-        ticker = CATEGORIES[cat][sym]
-        data   = get_data(ticker)
-        data["symbol"] = sym
+        except Exception as e:
+            body = json.dumps({"error": str(e)}).encode()
+            self.send_response(500)
 
-        return {"statusCode": 200,
-                "body": json.dumps(data),
-                "headers": {"Content-Type": "application/json",
-                            "Access-Control-Allow-Origin": "*"}}
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
 
-    except Exception as e:
-        return {"statusCode": 500,
-                "body": json.dumps({"error": str(e)}),
-                "headers": {"Content-Type": "application/json",
-                            "Access-Control-Allow-Origin": "*"}}
+    def log_message(self, format, *args):
+        pass  # suppress default logging
