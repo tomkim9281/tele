@@ -1,37 +1,51 @@
+#!/usr/bin/env python3
 """
-CryptoPanic News Bot — MyInvestmentMarkets
-Checks CryptoPanic API for hot crypto news and posts to News topic.
-Triggered by GitHub Actions Cron every 5 minutes.
-
-NOTE: ForexLive / Reuters RSS is handled in real-time by Superfeedr webhook
-      at /api/news-webhook (Vercel serverless). This script handles crypto only.
+High-Frequency Breaking News Bot (Zero Signup & Free Pipeline)
+Checks multiple reliable RSS feeds every 5 minutes (via GitHub Actions).
+Strictly checks 'pubDate' to ensure only recent news (< 60 mins) is posted.
+No webhooks required. English only.
 """
 
 import json
 import os
 import urllib.request
+import xml.etree.ElementTree as ET
 from datetime import datetime, timezone, timedelta
 import hashlib
+import time
+from email.utils import parsedate_to_datetime
 
-BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
-GEMINI_KEY = os.environ.get("GEMINI_API_KEY", "")
-CRYPTOPANIC_KEY = os.environ.get("CRYPTOPANIC_API_KEY", "")
-CHAT_ID = -1003754818644
-TOPIC_NEWS = 3  # re
+BOT_TOKEN   = os.environ.get("TELEGRAM_BOT_TOKEN", "")
+GEMINI_KEY  = os.environ.get("GEMINI_API_KEY", "")
+CPANIC_KEY  = os.environ.get("CRYPTOPANIC_API_KEY", "")
+CHAT_ID     = -1003754818644
+TOPIC_NEWS  = 3  # "re" thread
 
 KST = timezone(timedelta(hours=9))
 SENT_IDS_FILE = "/tmp/sent_news_ids.json"
+MAX_AGE_MINUTES = 60
 
+# We cast a wide net for high impact items across macro, US equities, and crypto
 HIGH_IMPACT_KEYWORDS = [
-    "fed", "federal reserve", "fomc", "rate hike", "rate cut", "interest rate",
-    "cpi", "inflation", "nfp", "jobs", "gdp", "recession",
-    "war", "crisis", "sanctions", "oil", "opec",
-    "bitcoin", "crypto", "sec", "etf approval",
-    "trump", "powell", "yellen",
-    "bank failure", "default", "debt ceiling",
-    "emergency", "breaking", "urgent", "alert"
+    # Macro / Central Banks
+    "fed", "fomc", "rate hike", "rate cut", "interest rate", "powell", "yellen",
+    "cpi", "inflation", "nfp", "payroll", "jobs", "gdp", "recession",
+    # Geopolitics / Macro Risk
+    "war", "crisis", "sanctions", "oil", "opec", "emergency", "breaking",
+    # Crypto
+    "bitcoin", "crypto", "etf", "sec approval", "binance", "coinbase",
+    # Stocks / Companies
+    "earnings beat", "earnings miss", "surprise", "merger", "acquisition",
+    "apple", "microsoft", "nvidia", "tesla", "amazon", "google"
 ]
 
+RSS_SOURCES = [
+    ("FXStreet",       "https://www.fxstreet.com/rss"),
+    ("ForexLive",      "https://www.forexlive.com/feed/news"),
+    ("Investing.com",  "https://www.investing.com/rss/news_285.rss"),
+    ("CNBC Markets",   "https://search.cnbc.com/rs/search/combinedcms/view.xml?partnerId=wrss01&id=10000664"),
+    ("Cointelegraph",  "https://cointelegraph.com/rss")
+]
 
 def load_sent_ids():
     try:
@@ -42,8 +56,7 @@ def load_sent_ids():
 
 def save_sent_ids(ids):
     try:
-        # Keep only last 500 IDs to prevent file bloat
-        id_list = list(ids)[-500:]
+        id_list = list(ids)[-1000:]
         with open(SENT_IDS_FILE, "w") as f:
             json.dump(id_list, f)
     except Exception:
@@ -54,60 +67,73 @@ def fetch_url(url):
     with urllib.request.urlopen(req, timeout=8) as r:
         return r.read()
 
-def is_high_impact(title, description=""):
-    text = (title + " " + description).lower()
+def is_high_impact(title, desc=""):
+    text = (title + " " + desc).lower()
     return any(kw in text for kw in HIGH_IMPACT_KEYWORDS)
 
-def make_id(title, link):
+def make_id(title, link=""):
     return hashlib.md5(f"{title}{link}".encode()).hexdigest()[:16]
 
-def gemini_one_line(title, description):
+def gemini_one_line(title, desc):
+    if not GEMINI_KEY:
+        return ""
     try:
-        prompt = f"""Summarize this financial news in exactly ONE sentence (max 20 words). 
-Be direct and factual. Include the key impact on markets if clear.
-Title: {title}
-Details: {description[:300] if description else 'N/A'}"""
-
-        payload = {
+        prompt = (
+            f"Summarize this financial news in ONE concise English sentence (max 20 words). "
+            f"Be direct and factual. Include market impact if clear.\n"
+            f"Headline: {title}\nDetails: {desc[:300] if desc else 'N/A'}"
+        )
+        payload = json.dumps({
             "contents": [{"parts": [{"text": prompt}]}],
             "generationConfig": {"temperature": 0.3, "maxOutputTokens": 60}
-        }
-        data = json.dumps(payload).encode()
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={GEMINI_KEY}"
-        req = urllib.request.Request(url, data=data, headers={"Content-Type": "application/json"})
-        with urllib.request.urlopen(req, timeout=15) as r:
-            result = json.loads(r.read())
-        return result["candidates"][0]["content"]["parts"][0]["text"].strip()
-    except Exception:
+        }).encode()
+        req = urllib.request.Request(
+            f"https://generativelanguage.googleapis.com/v1beta/models/"
+            f"gemini-2.0-flash:generateContent?key={GEMINI_KEY}",
+            data=payload, headers={"Content-Type": "application/json"})
+        with urllib.request.urlopen(req, timeout=10) as r:
+            res = json.loads(r.read())
+        return res["candidates"][0]["content"]["parts"][0]["text"].strip()
+    except Exception as e:
+        print(f"Gemini error: {e}")
         return ""
 
 def tg_send(text):
-    payload = {
-        "chat_id": CHAT_ID,
-        "message_thread_id": TOPIC_NEWS,
-        "text": text,
-        "parse_mode": "HTML",
-        "disable_web_page_preview": False
+    p = {
+        "chat_id": CHAT_ID, "message_thread_id": TOPIC_NEWS,
+        "text": text, "parse_mode": "HTML", "disable_web_page_preview": False
     }
-    data = json.dumps(payload).encode()
     req = urllib.request.Request(
         f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
-        data=data,
-        headers={"Content-Type": "application/json"}
-    )
+        data=json.dumps(p).encode(), headers={"Content-Type": "application/json"})
     with urllib.request.urlopen(req, timeout=10) as r:
         return json.loads(r.read())
 
-def fetch_rss_items():
+def fetch_all():
     items = []
+    now_utc = datetime.now(timezone.utc)
+
+    # 1. RSS Feeds
     for source_name, url in RSS_SOURCES:
         try:
             raw = fetch_url(url)
             root = ET.fromstring(raw)
-            for item in root.findall(".//item")[:10]:
+            for item in root.findall(".//item"):
                 title = item.findtext("title", "").strip()
                 link  = item.findtext("link", "").strip()
                 desc  = item.findtext("description", "").strip()
+                pub_d = item.findtext("pubDate", "").strip()
+                
+                # Filter strictly by freshness
+                if pub_d:
+                    try:
+                        dt = parsedate_to_datetime(pub_d)
+                        age_mins = (now_utc - dt).total_seconds() / 60
+                        if age_mins > MAX_AGE_MINUTES or age_mins < -60:
+                            continue  # Too old or future-dated
+                    except Exception:
+                        pass # Ignore parse errors and process anyway
+
                 items.append({
                     "id": make_id(title, link),
                     "source": source_name,
@@ -117,37 +143,45 @@ def fetch_rss_items():
                 })
         except Exception as e:
             print(f"RSS error [{source_name}]: {e}")
-    return items
 
-def fetch_cryptopanic():
-    items = []
-    if not CRYPTOPANIC_KEY:
-        return items
-    try:
-        url = f"https://cryptopanic.com/api/v1/posts/?auth_token={CRYPTOPANIC_KEY}&filter=hot&public=true"
-        raw = fetch_url(url)
-        data = json.loads(raw)
-        for post in data.get("results", [])[:10]:
-            title = post.get("title", "")
-            link  = post.get("url", "")
-            items.append({
-                "id": make_id(title, link),
-                "source": "CryptoPanic",
-                "title": title,
-                "link": link,
-                "description": ""
-            })
-    except Exception as e:
-        print(f"CryptoPanic error: {e}")
+    # 2. CryptoPanic
+    if CPANIC_KEY:
+        try:
+            url = f"https://cryptopanic.com/api/v1/posts/?auth_token={CPANIC_KEY}&filter=hot&public=true"
+            data = json.loads(fetch_url(url))
+            for post in data.get("results", []):
+                title = post.get("title", "").strip()
+                link  = post.get("url", "").strip()
+                pub_d = post.get("created_at", "").strip()
+                
+                if pub_d:
+                    try:
+                        dt = datetime.fromisoformat(pub_d.replace("Z", "+00:00"))
+                        age_mins = (now_utc - dt).total_seconds() / 60
+                        if age_mins > MAX_AGE_MINUTES:
+                            continue
+                    except Exception:
+                        pass
+
+                items.append({
+                    "id": make_id(title, link),
+                    "source": "CryptoPanic",
+                    "title": title,
+                    "link": link,
+                    "description": ""
+                })
+        except Exception as e:
+            print(f"CryptoPanic error: {e}")
+
     return items
 
 def run():
+    print(f"Starting news fetch at {datetime.now(timezone.utc)}")
     sent_ids = load_sent_ids()
-    # ForexLive / Reuters → handled by Superfeedr webhook (api/news-webhook.py)
-    # This cron job handles CryptoPanic only
-    all_items = fetch_cryptopanic()
+    all_items = fetch_all()
     new_count = 0
 
+    print(f"Found {len(all_items)} recent articles (< {MAX_AGE_MINUTES} mins old).")
 
     for item in all_items:
         if item["id"] in sent_ids:
@@ -155,9 +189,7 @@ def run():
         if not is_high_impact(item["title"], item["description"]):
             continue
 
-        # Gemini 1-line summary
         summary = gemini_one_line(item["title"], item["description"])
-
         now_str = datetime.now(KST).strftime("%H:%M KST")
 
         text = (
@@ -167,23 +199,21 @@ def run():
         if summary:
             text += f"📌 {summary}\n"
         text += (
-            f"\n🕐 {now_str}  |  📰 {item['source']}"
-            f"\n📎 <a href='{item['link']}'>Read More</a>"
+            f"\n🕐 {now_str}  |  📰 {item['source']}\n"
+            f"📎 <a href='{item['link']}'>Read Source</a>"
         )
 
         try:
             tg_send(text)
             sent_ids.add(item["id"])
             new_count += 1
-            print(f"✅ Sent: {item['title'][:60]}")
-            # Small delay to avoid flooding
-            import time
-            time.sleep(2)
+            print(f"✅ Sent: {item['title'][:50]}...")
+            time.sleep(2)  # Avoid rate limit
         except Exception as e:
-            print(f"Send error: {e}")
+            print(f"❌ Send error: {e}")
 
     save_sent_ids(sent_ids)
-    print(f"✅ News check complete. {new_count} new articles sent.")
+    print(f"Done. Sent {new_count} new breaking alerts.")
 
 if __name__ == "__main__":
     run()
