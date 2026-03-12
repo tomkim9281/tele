@@ -1,13 +1,15 @@
 """
-Real-time News Bot — MyInvestmentMarkets
-Checks RSS feeds for high-impact news and posts to News topic.
-Triggered by GitHub Actions Cron every 15 minutes.
+CryptoPanic News Bot — MyInvestmentMarkets
+Checks CryptoPanic API for hot crypto news and posts to News topic.
+Triggered by GitHub Actions Cron every 5 minutes.
+
+NOTE: ForexLive / Reuters RSS is handled in real-time by Superfeedr webhook
+      at /api/news-webhook (Vercel serverless). This script handles crypto only.
 """
 
 import json
 import os
 import urllib.request
-import xml.etree.ElementTree as ET
 from datetime import datetime, timezone, timedelta
 import hashlib
 
@@ -30,11 +32,6 @@ HIGH_IMPACT_KEYWORDS = [
     "emergency", "breaking", "urgent", "alert"
 ]
 
-RSS_SOURCES = [
-    ("ForexLive", "https://www.forexlive.com/feed/news"),
-    ("Reuters Business", "https://feeds.reuters.com/reuters/businessNews"),
-    ("Reuters Markets", "https://feeds.reuters.com/reuters/financialsNews"),
-]
 
 def load_sent_ids():
     try:
@@ -146,8 +143,11 @@ def fetch_cryptopanic():
 
 def run():
     sent_ids = load_sent_ids()
-    all_items = fetch_rss_items() + fetch_cryptopanic()
+    # ForexLive / Reuters → handled by Superfeedr webhook (api/news-webhook.py)
+    # This cron job handles CryptoPanic only
+    all_items = fetch_cryptopanic()
     new_count = 0
+
 
     for item in all_items:
         if item["id"] in sent_ids:
