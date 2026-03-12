@@ -181,12 +181,13 @@ async function buildChartImg(ohlc, sym) {
     },
     options: {
       legend: {display: false},
-      scales: {
-        x: {type:'time', time:{unit:'hour', displayFormats:{hour:'MM/DD HH:mm'}}, ticks:{color:'#888',maxTicksLimit:8}, grid:{color:'rgba(255,255,255,0.04)'}},
-        y: {ticks:{color:'#888'}, grid:{color:'rgba(255,255,255,0.04)'}}
-      },
       plugins: {
-        title: {display:true, text:'MIM — '+sym+' 5D (1H Candles)', color:'#666', font:{size:11}}
+        legend: {display: false},
+        title: {display:true, text:'MIM — '+sym+' 5D (1H)', color:'#666', font:{size:11}}
+      },
+      scales: {
+        x: {type:'timeseries', time:{unit:'hour', displayFormats:{hour:'M/D HH:mm'}}, ticks:{color:'#888',maxTicksLimit:4,autoSkip:true}, grid:{color:'rgba(255,255,255,0.04)'}},
+        y: {ticks:{color:'#888'}, grid:{color:'rgba(255,255,255,0.04)'}}
       }
     }
   };
