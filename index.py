@@ -28,44 +28,44 @@ CATEGORIES = {
     "indices": {
         "label": "지수",
         "symbols": {
-            "EURO50.c": "^STOXX50E",
-            "US30.c": "^DJI",
-            "HK50.c": "^HSI",
-            "JP225.c": "^N225",
-            "UK100.c": "^FTSE",
-            "US100.c": "^NDX",
-            "US500.c": "^GSPC"
+            "EURO 50": "^STOXX50E",
+            "US 30": "^DJI",
+            "HK 50": "^HSI",
+            "JP 225": "^N225",
+            "UK 100": "^FTSE",
+            "US 100": "^NDX",
+            "US 500": "^GSPC"
         }
     },
     "crypto": {
         "label": "암호화폐",
         "symbols": {
-            "BTCUSD.nx": "bitcoin",
-            "ETHUSD.nx": "ethereum",
-            "XRPUSD.nx": "ripple",
-            "DOGEUSD.nx": "dogecoin",
-            "SOLUSD.nx": "solana"
+            "BTC/USD": "BTC-USD",
+            "ETH/USD": "ETH-USD",
+            "XRP/USD": "XRP-USD",
+            "DOGE/USD": "DOGE-USD",
+            "SOL/USD": "SOL-USD"
         }
     },
     "forex": {
         "label": "외환",
         "symbols": {
-            "AUDCAD": "AUDCAD=X", "AUDCHF": "AUDCHF=X", "AUDJPY": "AUDJPY=X", "AUDNZD": "AUDNZD=X", "AUDUSD": "AUDUSD=X",
-            "CADJPY": "CADJPY=X", "CHFJPY": "CHFJPY=X",
-            "EURAUD": "EURAUD=X", "EURCHF": "EURCHF=X", "EURGBP": "EURGBP=X", "EURJPY": "EURJPY=X", "EURUSD": "EURUSD=X",
-            "GBPAUD": "GBPAUD=X", "GBPJPY": "GBPJPY=X", "GBPUSD": "GBPUSD=X", "GBPCAD": "GBPCAD=X", "GBPNZD": "GBPNZD=X",
-            "NZDJPY": "NZDJPY=X", "NZDUSD": "NZDUSD=X",
-            "USDCAD": "USDCAD=X", "USDCHF": "USDCHF=X", "USDHKD": "USDHKD=X", "USDJPY": "USDJPY=X", "USDSGD": "USDSGD=X", "USDCNH": "USDCNH=X", "USDTHB": "USDTHB=X"
+            "AUD/CAD": "AUDCAD=X", "AUD/CHF": "AUDCHF=X", "AUD/JPY": "AUDJPY=X", "AUD/NZD": "AUDNZD=X", "AUD/USD": "AUDUSD=X",
+            "CAD/JPY": "CADJPY=X", "CHF/JPY": "CHFJPY=X",
+            "EUR/AUD": "EURAUD=X", "EUR/CHF": "EURCHF=X", "EUR/GBP": "EURGBP=X", "EUR/JPY": "EURJPY=X", "EUR/USD": "EURUSD=X",
+            "GBP/AUD": "GBPAUD=X", "GBP/JPY": "GBPJPY=X", "GBP/USD": "GBPUSD=X", "GBP/CAD": "GBPCAD=X", "GBP/NZD": "GBPNZD=X",
+            "NZD/JPY": "NZDJPY=X", "NZD/USD": "NZDUSD=X",
+            "USD/CAD": "USDCAD=X", "USD/CHF": "USDCHF=X", "USD/HKD": "USDHKD=X", "USD/JPY": "USDJPY=X", "USD/SGD": "USDSGD=X", "USD/CNH": "USDCNH=X", "USD/THB": "USDTHB=X"
         }
     },
     "commodities": {
         "label": "원자재",
         "symbols": {
-            "XAGUSD": "SI=F",
-            "XAUUSD": "GC=F",
-            "USOIL.c": "CL=F",
-            "UKOIL.c": "BZ=F",
-            "XNGUSD": "NG=F"
+            "Silver": "SI=F",
+            "Gold": "GC=F",
+            "WTI Crude": "CL=F",
+            "Brent Crude": "BZ=F",
+            "Natural Gas": "NG=F"
         }
     }
 }
@@ -88,12 +88,12 @@ def send_webapp_message(chat_id, thread_id):
     app_url = "https://tel1-three.vercel.app/"
     kb = {
         "inline_keyboard": [[
-            {"text": "📊 실시간 시세 및 캔들 차트 열기", "web_app": {"url": app_url}}
+            {"text": "📊 실시간 시세 및 캔들 차트 열기", "url": app_url}
         ]]
     }
     p = {
         "chat_id": chat_id,
-        "text": "📊 <b>MyInvestmentMarkets — Live Prices</b>\n\n아래 버튼을 눌러 시세표와 차트를 엽니다. (알림 없이 본인만 조작 가능한 독립 웹앱 화면이 열립니다.)",
+        "text": "📊 <b>MyInvestmentMarkets — Live Prices</b>\n\n아래 버튼을 눌러 시세표와 차트를 엽니다. (알림 없이 본인 단말기에만 뜨는 프라이빗 팝업창입니다)",
         "parse_mode": "HTML",
         "reply_markup": kb
     }
@@ -101,22 +101,6 @@ def send_webapp_message(chat_id, thread_id):
         p["message_thread_id"] = thread_id
     tg("sendMessage", p)
 
-def edit_webapp_message(chat_id, msg_id):
-    """Updates the pinned message to have the Web App button"""
-    app_url = "https://tel1-three.vercel.app/"
-    kb = {
-        "inline_keyboard": [[
-            {"text": "📊 실시간 시세 및 캔들 차트 열기", "web_app": {"url": app_url}}
-        ]]
-    }
-    p = {
-        "chat_id": chat_id,
-        "message_id": msg_id,
-        "text": "📊 <b>MyInvestmentMarkets — Live Prices</b>\n\n아래 버튼을 눌러 시세표와 차트를 엽니다. (알림 없이 본인만 조작 가능한 독립 웹앱 화면이 열립니다.)",
-        "parse_mode": "HTML",
-        "reply_markup": kb
-    }
-    tg("editMessageText", p)
 
 # ── Price Fetchers ──────────────────────────────────────────────────────────
 def fetch(url):
@@ -150,25 +134,6 @@ def get_yf_data(ticker):
             
     return {"price": price, "change_pct": pct, "high": high, "low": low, "ohlc": ohlc}
 
-def get_cg_data(cg_id):
-    url_p = (f"https://api.coingecko.com/api/v3/simple/price?ids={cg_id}"
-             f"&vs_currencies=usd&include_24hr_change=true"
-             f"&include_high_24h=true&include_low_24h=true")
-    d = fetch(url_p)[cg_id]
-    price = d["usd"]
-    pct   = d.get("usd_24h_change", 0)
-    high  = d.get("usd_24h_high", price)
-    low   = d.get("usd_24h_low", price)
-    
-    url_c = f"https://api.coingecko.com/api/v3/coins/{cg_id}/ohlc?vs_currency=usd&days=30"
-    raw = fetch(url_c)
-    ohlc = []
-    for row in raw:
-        ts_ms, o, h, l, c = row
-        dt = datetime.fromtimestamp(ts_ms/1000, tz=timezone.utc).strftime("%Y-%m-%d")
-        ohlc.append({"time": dt, "open": round(o,5), "high": round(h,5), "low": round(l,5), "close": round(c,5)})
-        
-    return {"price": price, "change_pct": pct, "high": high, "low": low, "ohlc": ohlc}
 
 # ── API Endpoint ────────────────────────────────────────────────────────────
 def handle_api_quote(environ):
@@ -182,10 +147,8 @@ def handle_api_quote(environ):
             
         ticker = CATEGORIES[cat]["symbols"][sym]
         
-        if cat == "crypto":
-            data = get_cg_data(ticker)
-        else:
-            data = get_yf_data(ticker)
+        # We unified everything to Yahoo Finance
+        data = get_yf_data(ticker)
             
         data["symbol"] = sym
         return data
@@ -204,8 +167,6 @@ def app(environ, start_response):
             length = int(environ.get("CONTENT_LENGTH", 0) or 0)
             body = environ["wsgi.input"].read(length)
             update = json.loads(body)
-            # Just ignore incoming callback_queries from old pinned message
-            # Or handle /webapp command
             msg = update.get("message", {})
             if msg.get("text", "").startswith("/webapp"):
                 send_webapp_message(msg["chat"]["id"], msg.get("message_thread_id"))

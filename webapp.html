@@ -16,6 +16,7 @@
             color: var(--tg-theme-text-color, #ffffff);
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
             overflow-x: hidden;
+            -webkit-tap-highlight-color: transparent;
         }
         .tab-active {
             border-bottom: 2px solid #00d4aa;
@@ -103,7 +104,7 @@
         tg.expand();
         tg.ready();
 
-        // Data Definition
+        // Exact match with Python backend keys
         const CATEGORIES = {
             "stocks": {
                 label: "주식",
@@ -111,24 +112,24 @@
             },
             "indices": {
                 label: "지수",
-                symbols: ["EURO50.c", "US30.c", "HK50.c", "JP225.c", "UK100.c", "US100.c", "US500.c"]
+                symbols: ["EURO 50", "US 30", "HK 50", "JP 225", "UK 100", "US 100", "US 500"]
             },
             "crypto": {
                 label: "암호화폐",
-                symbols: ["BTCUSD.nx", "ETHUSD.nx", "XRPUSD.nx", "DOGEUSD.nx", "SOLUSD.nx"]
+                symbols: ["BTC/USD", "ETH/USD", "XRP/USD", "DOGE/USD", "SOL/USD"]
             },
             "forex": {
                 label: "외환",
-                symbols: ["AUDCAD", "AUDCHF", "AUDJPY", "AUDNZD", "AUDUSD", "CADJPY", "CHFJPY", "EURAUD", "EURCHF", "EURGBP", "EURJPY", "EURUSD", "GBPAUD", "GBPJPY", "GBPUSD", "GBPCAD", "GBPNZD", "NZDJPY", "NZDUSD", "USDCAD", "USDCHF", "USDHKD", "USDJPY", "USDSGD", "USDCNH", "USDTHB"]
+                symbols: ["AUD/CAD", "AUD/CHF", "AUD/JPY", "AUD/NZD", "AUD/USD", "CAD/JPY", "CHF/JPY", "EUR/AUD", "EUR/CHF", "EUR/GBP", "EUR/JPY", "EUR/USD", "GBP/AUD", "GBP/JPY", "GBP/USD", "GBP/CAD", "GBP/NZD", "NZD/JPY", "NZD/USD", "USD/CAD", "USD/CHF", "USD/HKD", "USD/JPY", "USD/SGD", "USD/CNH", "USD/THB"]
             },
             "commodities": {
                 label: "원자재",
-                symbols: ["XAGUSD", "XAUUSD", "USOIL.c", "UKOIL.c", "XNGUSD"]
+                symbols: ["Silver", "Gold", "WTI Crude", "Brent Crude", "Natural Gas"]
             }
         };
 
         let currentCat = "indices";
-        let currentSym = "US100.c";
+        let currentSym = "US 100";
         let chart = null;
         let cseries = null;
 
@@ -164,9 +165,10 @@
                 wickDownColor: '#ff4757',
             });
             
-            // Resize handler
             window.addEventListener('resize', () => {
-                chart.applyOptions({ width: container.clientWidth });
+                if(container.clientWidth > 0) {
+                    chart.applyOptions({ width: container.clientWidth });
+                }
             });
         }
 
@@ -177,8 +179,8 @@
             else if (p > 1) dec = 4;
             else dec = 6;
             
-            if (sym.includes("JPY") || sym === "USOIL.c" || sym === "UKOIL.c" || sym === "XAGUSD") dec = 3;
-            if (["EURO50.c", "US30.c", "HK50.c", "JP225.c", "UK100.c", "US100.c", "US500.c"].includes(sym)) dec = 2;
+            if (sym.includes("JPY") || sym.includes("Crude") || sym === "Silver") dec = 3;
+            if (["EURO 50", "US 30", "HK 50", "JP 225", "UK 100", "US 100", "US 500"].includes(sym)) dec = 2;
             
             return Number(p).toLocaleString('en-US', {minimumFractionDigits: dec, maximumFractionDigits: dec});
         }
@@ -189,8 +191,8 @@
             document.getElementById('disp-sym').innerText = sym;
             
             try {
-                // Fetch from our Vercel Python API
-                const res = await fetch(`/api/quote?cat=${cat}&sym=${sym}`);
+                // Encode sym parameter to handle spaces and slashes correctly e.g %20, %2F
+                const res = await fetch(`/api/quote?cat=${cat}&sym=${encodeURIComponent(sym)}`);
                 const data = await res.json();
                 
                 if (data.error) throw new Error(data.error);
@@ -214,6 +216,7 @@
                 // Update Chart
                 if (!chart) initChart();
                 if (data.ohlc && data.ohlc.length > 0) {
+                    // Safe set data
                     cseries.setData(data.ohlc);
                     chart.timeScale().fitContent();
                 } else {
@@ -223,9 +226,11 @@
                 console.error(err);
                 document.getElementById('disp-price').innerText = "Error";
                 document.getElementById('disp-change').innerText = "--";
+                document.getElementById('disp-high').innerText = "--";
+                document.getElementById('disp-low').innerText = "--";
+                if(cseries) cseries.setData([]); // clear chart on error
             } finally {
                 document.getElementById('chart-loading').classList.add('hidden');
-                // Haptic feedback
                 if (tg.HapticFeedback) tg.HapticFeedback.impactOccurred('light');
             }
         }
@@ -241,7 +246,7 @@
                 btn.innerText = sym;
                 btn.onclick = () => {
                     currentSym = sym;
-                    renderSymbols(catKey); // re-render to update active styling
+                    renderSymbols(catKey);
                     fetchQuote(catKey, sym);
                 };
                 cont.appendChild(btn);
@@ -258,9 +263,9 @@
                 btn.innerText = CATEGORIES[key].label;
                 btn.onclick = () => {
                     currentCat = key;
-                    renderTabs(); // update active state
+                    renderTabs();
                     renderSymbols(key);
-                    // Automatically click first symbol
+                    
                     const firstSym = CATEGORIES[key].symbols[0];
                     currentSym = firstSym;
                     renderSymbols(key);
@@ -273,7 +278,6 @@
         // Init
         renderTabs();
         renderSymbols(currentCat);
-        // Add slight delay to allow UI to render first
         setTimeout(() => fetchQuote(currentCat, currentSym), 200);
 
     </script>
