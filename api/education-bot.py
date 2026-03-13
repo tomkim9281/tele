@@ -163,7 +163,7 @@ def get_ohlcv(symbol, period="90d"):
     url = f"https://query1.finance.yahoo.com/v8/finance/chart/{urllib.parse.quote(symbol)}?interval=1d&range={period}"
     data = json.loads(fetch_url(url))
     result = data["chart"]["result"][0]
-    timestamps = result["timestamps"]
+    timestamps = result["timestamp"]
     quotes = result["indicators"]["quote"][0]
     opens   = quotes["open"]
     highs   = quotes["high"]
@@ -173,18 +173,18 @@ def get_ohlcv(symbol, period="90d"):
     return timestamps, opens, highs, lows, closes, volumes
 
 def build_chart_and_indicators(strategy):
-    """Generate chart using mplfinance and compute indicators via pandas-ta"""
+    """Generate chart using mplfinance and compute indicators via ta"""
     try:
         import pandas as pd
-        import pandas_ta as ta
+        import ta
         import mplfinance as mpf
         import matplotlib
     except ImportError:
         import subprocess
         import sys
-        subprocess.check_call([sys.executable, "-m", "pip", "install", "pandas-ta", "mplfinance", "matplotlib", "yfinance", "pandas"])
+        subprocess.check_call([sys.executable, "-m", "pip", "install", "ta", "mplfinance", "matplotlib", "yfinance", "pandas"])
         import pandas as pd
-        import pandas_ta as ta
+        import ta
         import mplfinance as mpf
         import matplotlib
 
@@ -214,7 +214,8 @@ def build_chart_and_indicators(strategy):
 
     # ── RSI ────────────────────────────────────────────────────────────────
     if "RSI" in indicators:
-        df["RSI"] = ta.rsi(df["Close"], length=14)
+        from ta.momentum import RSIIndicator
+        df["RSI"] = RSIIndicator(df["Close"], window=14).rsi()
         result["RSI(14)"] = f"{df['RSI'].iloc[-1]:.1f}"
         rsi_plot = mpf.make_addplot(df["RSI"], panel=panel, color="#f39c12",
                                      ylabel="RSI", secondary_y=False)
@@ -223,36 +224,37 @@ def build_chart_and_indicators(strategy):
 
     # ── MACD ───────────────────────────────────────────────────────────────
     if "MACD" in indicators:
-        macd_df = ta.macd(df["Close"])
-        if macd_df is not None and not macd_df.empty:
-            df["MACD"] = macd_df.iloc[:, 0]
-            df["MACDs"] = macd_df.iloc[:, 1]
-            result["MACD"] = f"{df['MACD'].iloc[-1]:.2f}"
-            macd_plot = mpf.make_addplot(df["MACD"], panel=panel, color="#3498db",
-                                          ylabel="MACD", secondary_y=False)
-            sig_plot  = mpf.make_addplot(df["MACDs"], panel=panel, color="#e74c3c",
-                                          secondary_y=False)
-            addplots.extend([macd_plot, sig_plot])
-            panel += 1
+        from ta.trend import MACD
+        macd_obj = MACD(df["Close"])
+        df["MACD"] = macd_obj.macd()
+        df["MACDs"] = macd_obj.macd_signal()
+        result["MACD"] = f"{df['MACD'].iloc[-1]:.2f}"
+        macd_plot = mpf.make_addplot(df["MACD"], panel=panel, color="#3498db",
+                                      ylabel="MACD", secondary_y=False)
+        sig_plot  = mpf.make_addplot(df["MACDs"], panel=panel, color="#e74c3c",
+                                      secondary_y=False)
+        addplots.extend([macd_plot, sig_plot])
+        panel += 1
 
     # ── Bollinger Bands ────────────────────────────────────────────────────
     if "BB" in indicators:
-        bb_df = ta.bbands(df["Close"], length=20)
-        if bb_df is not None and not bb_df.empty:
-            df["BB_U"] = bb_df.iloc[:, 0]
-            df["BB_L"] = bb_df.iloc[:, 2]
-            result["BB Upper"] = f"{df['BB_U'].iloc[-1]:,.2f}"
-            result["BB Lower"] = f"{df['BB_L'].iloc[-1]:,.2f}"
-            bb_upper = mpf.make_addplot(df["BB_U"], panel=0, color="#9b59b6", linestyle="--")
-            bb_lower = mpf.make_addplot(df["BB_L"], panel=0, color="#9b59b6", linestyle="--")
-            addplots.extend([bb_upper, bb_lower])
+        from ta.volatility import BollingerBands
+        bb_obj = BollingerBands(df["Close"], window=20)
+        df["BB_U"] = bb_obj.bollinger_hband()
+        df["BB_L"] = bb_obj.bollinger_lband()
+        result["BB Upper"] = f"{df['BB_U'].iloc[-1]:,.2f}"
+        result["BB Lower"] = f"{df['BB_L'].iloc[-1]:,.2f}"
+        bb_upper = mpf.make_addplot(df["BB_U"], panel=0, color="#9b59b6", linestyle="--")
+        bb_lower = mpf.make_addplot(df["BB_L"], panel=0, color="#9b59b6", linestyle="--")
+        addplots.extend([bb_upper, bb_lower])
 
     # ── EMAs ───────────────────────────────────────────────────────────────
     for ema in ["EMA20", "EMA50", "EMA200"]:
         if ema in indicators:
+            from ta.trend import EMAIndicator
             length = int(ema.replace("EMA", ""))
             col = f"EMA{length}"
-            df[col] = ta.ema(df["Close"], length=length)
+            df[col] = EMAIndicator(df["Close"], window=length).ema_indicator()
             result[f"EMA({length})"] = f"{df[col].iloc[-1]:,.2f}"
             colors = {"EMA20": "#27ae60", "EMA50": "#f39c12", "EMA200": "#e74c3c"}
             ema_plot = mpf.make_addplot(df[col], panel=0, color=colors.get(ema, "#aaa"))
@@ -260,14 +262,26 @@ def build_chart_and_indicators(strategy):
 
     # ── Stochastic ─────────────────────────────────────────────────────────
     if "Stochastic" in indicators:
-        stoch_df = ta.stoch(df["High"], df["Low"], df["Close"])
-        if stoch_df is not None and not stoch_df.empty:
-            df["STOCHk"] = stoch_df.iloc[:, 0]
-            result["Stoch %K"] = f"{df['STOCHk'].iloc[-1]:.1f}"
-            stoch_plot = mpf.make_addplot(df["STOCHk"], panel=panel, color="#1abc9c",
-                                           ylabel="Stoch", secondary_y=False)
-            addplots.append(stoch_plot)
-            panel += 1
+        from ta.momentum import StochasticOscillator
+        stoch_obj = StochasticOscillator(high=df["High"], low=df["Low"], close=df["Close"])
+        df["STOCHk"] = stoch_obj.stoch()
+        result["Stoch %K"] = f"{df['STOCHk'].iloc[-1]:.1f}"
+        stoch_plot = mpf.make_addplot(df["STOCHk"], panel=panel, color="#1abc9c",
+                                       ylabel="Stoch", secondary_y=False)
+        addplots.append(stoch_plot)
+        panel += 1
+
+    # ── ATR ────────────────────────────────────────────────────────────────
+    if "ATR" in indicators:
+        from ta.volatility import AverageTrueRange
+        atr_obj = AverageTrueRange(high=df["High"], low=df["Low"], close=df["Close"], window=14)
+        df["ATR"] = atr_obj.average_true_range()
+        result["ATR(14)"] = f"{df['ATR'].iloc[-1]:.2f}"
+        atr_plot = mpf.make_addplot(df["ATR"], panel=panel, color="#f1c40f",
+                                     ylabel="ATR", secondary_y=False)
+        addplots.append(atr_plot)
+        panel += 1
+
 
     # ── Generate chart image ───────────────────────────────────────────────
     mc = mpf.make_marketcolors(
