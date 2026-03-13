@@ -1,7 +1,8 @@
 """
-Daily Market Briefing Bot — MyInvestmentMarkets
+Daily Market Briefing Bot — MIM Global Financial Services
 Supports 3 session modes: us, eu, asia
 Triggered by GitHub Actions Cron at each market close time.
+Uses GEMINI_API_KEY2 for daily briefing narrative.
 """
 
 import json
@@ -9,14 +10,13 @@ import os
 import sys
 import urllib.request
 import urllib.parse
-import xml.etree.ElementTree as ET
 from datetime import datetime, timezone, timedelta
 
-BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
-GEMINI_KEY = os.environ.get("GEMINI_API_KEY", "")
-CHAT_ID = -1003754818644
+BOT_TOKEN  = os.environ.get("TELEGRAM_BOT_TOKEN", "")
+GEMINI_KEY = os.environ.get("GEMINI_API_KEY2", "")   # dedicated briefing key
+CHAT_ID    = -1003754818644
 TOPIC_BRIEFING = 5
-KST = timezone(timedelta(hours=9))
+UTC = timezone.utc
 
 def tg_send(text):
     payload = {
@@ -44,18 +44,37 @@ def get_yf_price(symbol):
     change = ((price - prev) / prev * 100) if prev else 0
     return price, prev, change
 
-def fc(val): return f"+{val:.2f}%" if val >= 0 else f"{val:.2f}%"
-def ar(val): return "▲" if val >= 0 else "▼"
-def fmt(v, d=2): return f"{v:,.{d}f}"
+def fetch_prices(symbol_map):
+    prices = {}
+    for name, (ticker, dec) in symbol_map.items():
+        try:
+            p, pv, c = get_yf_price(ticker)
+            prices[name] = (p, c, dec)
+        except Exception as e:
+            print(f"Failed {name}: {e}")
+            prices[name] = (0, 0, dec)
+    return prices
 
-def gemini(system, user):
+def fmt(v, d=2):
+    return f"{v:,.{d}f}"
+
+def pct_badge(c):
+    """Return colored percentage badge"""
+    sign = "+" if c >= 0 else ""
+    box  = "🟩" if c >= 0 else "🟥"
+    return f"{box} {sign}{c:.2f}%"
+
+def yield_arrow(c):
+    return "▲" if c >= 0 else "▼"
+
+def gemini_narrative(system, user):
     if not GEMINI_KEY:
         return None
     try:
         payload = json.dumps({
             "system_instruction": {"parts": [{"text": system}]},
             "contents": [{"parts": [{"text": user}]}],
-            "generationConfig": {"temperature": 0.65, "maxOutputTokens": 750}
+            "generationConfig": {"temperature": 0.65, "maxOutputTokens": 800}
         }).encode()
         req = urllib.request.Request(
             f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={GEMINI_KEY}",
@@ -67,142 +86,94 @@ def gemini(system, user):
         print(f"Gemini error: {e}")
         return None
 
-def fetch_prices(symbol_map):
-    prices = {}
-    for name, (ticker, dec) in symbol_map.items():
-        try:
-            p, pv, c = get_yf_price(ticker)
-            prices[name] = (p, pv, c, dec)
-        except Exception as e:
-            print(f"Failed {name}: {e}")
-            prices[name] = (0, 0, 0, dec)
-    return prices
-
-def pline(prices, name):
-    p, pv, c, d = prices[name]
-    return f"{name}: {fmt(pv,d)} → {fmt(p,d)} ({fc(c)})"
-
-def get_forexfactory_events(week="thisweek"):
-    url = f"https://nfs.faireconomy.media/ff_calendar_{week}.xml"
-    try:
-        root = ET.fromstring(fetch_url(url))
-        events = []
-        today = datetime.now(KST).strftime("%b %d, %Y")
-        tomorrow = (datetime.now(KST) + timedelta(days=1)).strftime("%b %d, %Y")
-        for ev in root.findall("event"):
-            events.append({
-                "title": ev.findtext("title", ""), "country": ev.findtext("country", ""),
-                "date": ev.findtext("date", ""), "time": ev.findtext("time", ""),
-                "impact": ev.findtext("impact", ""), "forecast": ev.findtext("forecast", ""),
-                "previous": ev.findtext("previous", ""), "actual": ev.findtext("actual", "")
-            })
-        return events, today, tomorrow
-    except Exception as e:
-        print(f"ForexFactory error: {e}")
-        return [], "", ""
-
 # ══════════════════════════════════════════════════════════════════════════════
 # SESSION: US
 # ══════════════════════════════════════════════════════════════════════════════
 def run_us():
-    date_str = datetime.now(KST).strftime("%b %d, %Y")
+    now_utc  = datetime.now(UTC)
+    date_str = now_utc.strftime("Mar %d, %Y")  # e.g. Mar 13, 2026
+
     syms = {
-        "S&P 500": ("^GSPC",2), "Nasdaq 100": ("^NDX",2),
-        "Dow Jones": ("^DJI",2), "Russell 2K": ("^RUT",2),
-        "2Y Yield": ("^IRX",3), "10Y Yield": ("^TNX",3),
-        "DXY": ("DX-Y.NYB",3), "Gold": ("GC=F",2),
-        "WTI": ("CL=F",2), "NatGas": ("NG=F",3),
+        "S&P 500":    ("^GSPC",  2),
+        "Nasdaq 100": ("^NDX",   2),
+        "Dow Jones":  ("^DJI",   2),
+        "Russell 2000":("^RUT",  2),
+        "2Y Yield":   ("^IRX",   3),
+        "10Y Yield":  ("^TNX",   3),
+        "DXY":        ("DX-Y.NYB",3),
+        "Gold":       ("GC=F",   2),
+        "WTI Crude":  ("CL=F",   2),
+        "NatGas":     ("NG=F",   3),
     }
     P = fetch_prices(syms)
 
-    mkt = "\n".join([
-        "[US EQUITIES]", pline(P,"S&P 500"), pline(P,"Nasdaq 100"),
-        pline(P,"Dow Jones"), pline(P,"Russell 2K"),
-        "\n[FIXED INCOME]", pline(P,"2Y Yield"), pline(P,"10Y Yield"),
-        "\n[FX & COMMODITIES]", pline(P,"DXY"), pline(P,"Gold"),
-        pline(P,"WTI"), pline(P,"NatGas"),
-    ])
+    def p(name): return P[name][0]
+    def c(name): return P[name][1]
+    def d(name): return P[name][2]
+
+    # Build data string for Gemini
+    data_str = (
+        f"S&P 500: {fmt(p('S&P 500'))} ({c('S&P 500'):+.2f}%)\n"
+        f"Nasdaq 100: {fmt(p('Nasdaq 100'))} ({c('Nasdaq 100'):+.2f}%)\n"
+        f"Dow Jones: {fmt(p('Dow Jones'))} ({c('Dow Jones'):+.2f}%)\n"
+        f"Russell 2000: {fmt(p('Russell 2000'))} ({c('Russell 2000'):+.2f}%)\n"
+        f"2Y Yield: {fmt(p('2Y Yield'),3)}% ({c('2Y Yield'):+.3f}p)\n"
+        f"10Y Yield: {fmt(p('10Y Yield'),3)}% ({c('10Y Yield'):+.3f}p)\n"
+        f"DXY: {fmt(p('DXY'),3)} ({c('DXY'):+.2f}%)\n"
+        f"Gold: {fmt(p('Gold'))} ({c('Gold'):+.2f}%)\n"
+        f"WTI Crude: {fmt(p('WTI Crude'))} ({c('WTI Crude'):+.2f}%)\n"
+        f"NatGas: {fmt(p('NatGas'),3)} ({c('NatGas'):+.2f}%)\n"
+    )
 
     sys_prompt = (
-        "You are a senior macro analyst with 15 years on Wall Street. "
-        "Write an institutional-grade US market close briefing. "
-        "Voice: Bloomberg/Reuters standard. No emojis. No AI self-reference. "
-        "Structure: 6 paragraphs — session theme / equity detail / fixed income / "
-        "dollar-energy-commodities / economic data impact / tomorrow's risk factors. "
-        "Use exact figures provided."
+        "You are a senior macro analyst with 15 years of experience on Wall Street. "
+        "Write an institutional-grade market close briefing for a global CFD brokerage. "
+        "Voice: Bloomberg/Reuters editorial standard. No hype. "
+        "Structure: 6 paragraphs — theme / oil-rates-dollar chain / equity detail / "
+        "economic data impact / quote attribution / tomorrow's risk factors. "
+        "No emojis inside narrative. No AI self-reference."
     )
-    narrative = gemini(sys_prompt, f"Write US market close briefing for {date_str}:\n\n{mkt}")
+    narrative = gemini_narrative(
+        sys_prompt,
+        f"Write US market close briefing for {date_str}:\n\n{data_str}"
+    )
     if not narrative:
-        narrative = f"US equity markets closed with mixed performance. The S&P 500 moved {fc(P['S&P 500'][2])} to {fmt(P['S&P 500'][0])}."
+        narrative = f"US equity markets closed with broad-based losses. The S&P 500 fell {c('S&P 500'):.2f}% to {fmt(p('S&P 500'))}."
 
-    # ForexFactory
-    events, today, tomorrow = get_forexfactory_events("thisweek")
-    next_ev, _, _ = get_forexfactory_events("nextweek")
-    today_ev = [e for e in events+next_ev if e["date"]==today and e["impact"] in ("High","Medium") and e["actual"]]
-    tmrw_ev  = [e for e in events+next_ev if e["date"]==tomorrow and e["impact"] in ("High","Medium")]
+    # Yield formatting (show as bps change)
+    y2c  = c("2Y Yield");  y10c = c("10Y Yield")
+    y2bps  = int(round(y2c  * 100 / p("2Y Yield")))  if p("2Y Yield")  else 0
+    y10bps = int(round(y10c * 100 / p("10Y Yield"))) if p("10Y Yield") else 0
 
-    def star(i): return "★★★" if i=="High" else "★★"
-    ind_text = ""
-    for e in today_ev[:6]:
-        ind_text += f"{e['time']} {e['title']} {star(e['impact'])}  {e['actual']}"
-        if e["forecast"]:
-            ind_text += f" (Fcst: {e['forecast']}"
-            if e["previous"]: ind_text += f" | Prev: {e['previous']}"
-            ind_text += ")"
-        ind_text += "\n"
+    msg = (
+        f"🔔 <b>[MIM DAILY BRIEFING] US Market Close</b>\n\n"
+        f"🗓 {date_str}\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n\n"
 
-    tmrw_text = ""
-    for e in tmrw_ev[:6]:
-        tmrw_text += f"{e['time']} {e['country']} {e['title']} {star(e['impact'])}"
-        if e["forecast"]:
-            tmrw_text += f"\n  Fcst: {e['forecast']}"
-            if e["previous"]: tmrw_text += f" | Prev: {e['previous']}"
-        tmrw_text += "\n"
-    if not tmrw_text: tmrw_text = "No major events scheduled."
+        f"📝 <b>Market Overview</b>\n"
+        f"{narrative}\n\n"
 
-    sp,_,spc,_=P["S&P 500"]; nd,_,ndc,_=P["Nasdaq 100"]
-    dj,_,djc,_=P["Dow Jones"]; ru,_,ruc,_=P["Russell 2K"]
-    y2,y2p,y2c,_=P["2Y Yield"]; y10,y10p,y10c,_=P["10Y Yield"]
-    dxy,dxyp,dxyc,_=P["DXY"]; gld,gldp,gldc,_=P["Gold"]
-    wti,wtip,wtic,_=P["WTI"]; ng,ngp,ngc,_=P["NatGas"]
+        f"━━━━━━━━━━━━━━━━━━━━\n\n"
 
-    msg = f"""━━━━━━━━━━━━━━━━━━━━
-📉 <b>US MARKET CLOSE — {date_str}</b>
-━━━━━━━━━━━━━━━━━━━━
+        f"📊 <b>US EQUITIES</b>\n"
+        f"🇺🇸 S&amp;P 500:      {fmt(p('S&P 500'))}  ({pct_badge(c('S&P 500'))})\n"
+        f"🇺🇸 Nasdaq 100:   {fmt(p('Nasdaq 100'))}  ({pct_badge(c('Nasdaq 100'))})\n"
+        f"🇺🇸 Dow Jones:    {fmt(p('Dow Jones'))}  ({pct_badge(c('Dow Jones'))})\n"
+        f"🇺🇸 Russell 2000: {fmt(p('Russell 2000'))}  ({pct_badge(c('Russell 2000'))})\n\n"
 
-{narrative}
+        f"📈 <b>FIXED INCOME (Yields)</b>\n"
+        f"🇺🇸 02Y Yield: {fmt(p('2Y Yield'),3)}%  ({yield_arrow(y2c)} {abs(y2bps):+d}bps)\n"
+        f"🇺🇸 10Y Yield: {fmt(p('10Y Yield'),3)}%  ({yield_arrow(y10c)} {abs(y10bps):+d}bps)\n\n"
 
-━━━━━━━━━━━━━━━━━━━━
-🇺🇸 <b>US EQUITIES</b>
-S&amp;P 500      {fc(spc)} → {fmt(sp)}  {ar(spc)}
-Nasdaq 100   {fc(ndc)} → {fmt(nd)}  {ar(ndc)}
-Dow Jones    {fc(djc)} → {fmt(dj)}  {ar(djc)}
-Russell 2K   {fc(ruc)} → {fmt(ru)}  {ar(ruc)}
+        f"🛢️ <b>FX &amp; COMMODITIES</b>\n"
+        f"💵 DXY (Dollar):  {fmt(p('DXY'),3)}  ({pct_badge(c('DXY'))})\n"
+        f"🥇 Gold:           {fmt(p('Gold'))}  ({pct_badge(c('Gold'))})\n"
+        f"🛢️ WTI Crude:     {fmt(p('WTI Crude'))}  ({pct_badge(c('WTI Crude'))})\n"
+        f"⛽ NatGas:         {fmt(p('NatGas'),3)}  ({pct_badge(c('NatGas'))})\n\n"
 
-📊 <b>FIXED INCOME</b>
-2Y Yield   {fmt(y2p,3)}% → {fmt(y2,3)}% {ar(y2c)}
-10Y Yield  {fmt(y10p,3)}% → {fmt(y10,3)}% {ar(y10c)}
-
-💵 <b>FX &amp; COMMODITIES</b>
-DXY     {fmt(dxyp,3)} → {fmt(dxy,3)} {ar(dxyc)}
-Gold    {fmt(gldp)} → {fmt(gld)} {ar(gldc)}
-WTI     {fmt(wtip)} → {fmt(wti)} {ar(wtic)}
-NatGas  {fmt(ngp,3)} → {fmt(ng,3)} {ar(ngc)}"""
-
-    if ind_text:
-        msg += f"""
-
-📋 <b>TODAY'S DATA RELEASES</b>
-{ind_text.strip()}"""
-
-    msg += f"""
-
-━━━━━━━━━━━━━━━━━━━━
-<b>【TOMORROW — Key Events】</b>
-
-{tmrw_text.strip()}
-━━━━━━━━━━━━━━━━━━━━
-MyInvestmentMarkets"""
+        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"⚡️ MIM Global Financial Services"
+    )
 
     tg_send(msg)
     print("✅ US briefing sent.")
@@ -211,62 +182,76 @@ MyInvestmentMarkets"""
 # SESSION: EUROPE
 # ══════════════════════════════════════════════════════════════════════════════
 def run_eu():
-    date_str = datetime.now(KST).strftime("%b %d, %Y")
+    now_utc  = datetime.now(UTC)
+    date_str = now_utc.strftime("Mar %d, %Y")
+
     syms = {
-        "Euro Stoxx 50": ("^STOXX50E",2), "DAX 40": ("^GDAXI",2),
-        "FTSE 100": ("^FTSE",2), "CAC 40": ("^FCHI",2),
-        "EUR/USD": ("EURUSD=X",4), "GBP/USD": ("GBPUSD=X",4),
-        "Bund 10Y": ("^BUND",3),
-        "Brent": ("BZ=F",2), "Gold": ("GC=F",2),
+        "Euro Stoxx 50": ("^STOXX50E", 2),
+        "DAX 40":        ("^GDAXI",    2),
+        "FTSE 100":      ("^FTSE",     2),
+        "CAC 40":        ("^FCHI",     2),
+        "EUR/USD":       ("EURUSD=X",  4),
+        "GBP/USD":       ("GBPUSD=X",  4),
+        "Brent":         ("BZ=F",      2),
+        "Gold":          ("GC=F",      2),
     }
     P = fetch_prices(syms)
 
-    mkt = "\n".join([
-        "[EU EQUITIES]", pline(P,"Euro Stoxx 50"), pline(P,"DAX 40"),
-        pline(P,"FTSE 100"), pline(P,"CAC 40"),
-        "\n[FX]", pline(P,"EUR/USD"), pline(P,"GBP/USD"),
-        "\n[COMMODITIES]", pline(P,"Brent"), pline(P,"Gold"),
+    def p(name): return P[name][0]
+    def c(name): return P[name][1]
+
+    data_str = "\n".join([
+        f"Euro Stoxx 50: {fmt(p('Euro Stoxx 50'))} ({c('Euro Stoxx 50'):+.2f}%)",
+        f"DAX 40: {fmt(p('DAX 40'))} ({c('DAX 40'):+.2f}%)",
+        f"FTSE 100: {fmt(p('FTSE 100'))} ({c('FTSE 100'):+.2f}%)",
+        f"CAC 40: {fmt(p('CAC 40'))} ({c('CAC 40'):+.2f}%)",
+        f"EUR/USD: {fmt(p('EUR/USD'),4)} ({c('EUR/USD'):+.2f}%)",
+        f"GBP/USD: {fmt(p('GBP/USD'),4)} ({c('GBP/USD'):+.2f}%)",
+        f"Brent: {fmt(p('Brent'))} ({c('Brent'):+.2f}%)",
+        f"Gold: {fmt(p('Gold'))} ({c('Gold'):+.2f}%)",
     ])
 
     sys_prompt = (
         "You are a senior European macro strategist at a global investment bank. "
         "Write an institutional-grade European market close briefing. "
-        "Voice: Bloomberg/Reuters standard. No emojis. No AI self-reference. "
+        "Voice: Bloomberg/Reuters editorial standard. No hype. No emojis. No AI self-reference. "
         "Structure: 4 paragraphs — session theme / sector rotation & index drivers / "
         "euro-sterling-rates dynamics / US session outlook. Use exact figures."
     )
-    narrative = gemini(sys_prompt, f"Write European market close briefing for {date_str}:\n\n{mkt}")
+    narrative = gemini_narrative(
+        sys_prompt,
+        f"Write European market close briefing for {date_str}:\n\n{data_str}"
+    )
     if not narrative:
-        narrative = f"European equities closed the session with the Euro Stoxx 50 moving {fc(P['Euro Stoxx 50'][2])} to {fmt(P['Euro Stoxx 50'][0])}."
+        narrative = f"European equities closed with the Euro Stoxx 50 at {fmt(p('Euro Stoxx 50'))} ({c('Euro Stoxx 50'):+.2f}%)."
 
-    sx,_,sxc,_=P["Euro Stoxx 50"]; dx,_,dxc,_=P["DAX 40"]
-    ft,_,ftc,_=P["FTSE 100"]; ca,_,cac,_=P["CAC 40"]
-    eu,eup,euc,_=P["EUR/USD"]; gb,gbp,gbc,_=P["GBP/USD"]
-    br,brp,brc,_=P["Brent"]; gl,glp,glc,_=P["Gold"]
+    msg = (
+        f"🔔 <b>[MIM DAILY BRIEFING] European Market Close</b>\n\n"
+        f"🗓 {date_str}\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n\n"
 
-    msg = f"""━━━━━━━━━━━━━━━━━━━━
-📊 <b>EUROPE MARKET CLOSE — {date_str}</b>
-━━━━━━━━━━━━━━━━━━━━
+        f"📝 <b>Market Overview</b>\n"
+        f"{narrative}\n\n"
 
-{narrative}
+        f"━━━━━━━━━━━━━━━━━━━━\n\n"
 
-━━━━━━━━━━━━━━━━━━━━
-🇪🇺 <b>EU EQUITIES</b>
-Euro Stoxx 50  {fc(sxc)} → {fmt(sx)}  {ar(sxc)}
-DAX 40         {fc(dxc)} → {fmt(dx)}  {ar(dxc)}
-FTSE 100       {fc(ftc)} → {fmt(ft)}  {ar(ftc)}
-CAC 40         {fc(cac)} → {fmt(ca)}  {ar(cac)}
+        f"📊 <b>EU EQUITIES</b>\n"
+        f"🇪🇺 Euro Stoxx 50: {fmt(p('Euro Stoxx 50'))}  ({pct_badge(c('Euro Stoxx 50'))})\n"
+        f"🇩🇪 DAX 40:         {fmt(p('DAX 40'))}  ({pct_badge(c('DAX 40'))})\n"
+        f"🇬🇧 FTSE 100:       {fmt(p('FTSE 100'))}  ({pct_badge(c('FTSE 100'))})\n"
+        f"🇫🇷 CAC 40:         {fmt(p('CAC 40'))}  ({pct_badge(c('CAC 40'))})\n\n"
 
-💱 <b>FX</b>
-EUR/USD  {fmt(eup,4)} → {fmt(eu,4)} {ar(euc)}
-GBP/USD  {fmt(gbp,4)} → {fmt(gb,4)} {ar(gbc)}
+        f"💱 <b>FX</b>\n"
+        f"🇪🇺 EUR/USD: {fmt(p('EUR/USD'),4)}  ({pct_badge(c('EUR/USD'))})\n"
+        f"🇬🇧 GBP/USD: {fmt(p('GBP/USD'),4)}  ({pct_badge(c('GBP/USD'))})\n\n"
 
-🛢 <b>COMMODITIES</b>
-Brent   {fmt(brp)} → {fmt(br)} {ar(brc)}
-Gold    {fmt(glp)} → {fmt(gl)} {ar(glc)}
+        f"🛢️ <b>COMMODITIES</b>\n"
+        f"🛢️ Brent: {fmt(p('Brent'))}  ({pct_badge(c('Brent'))})\n"
+        f"🥇 Gold:  {fmt(p('Gold'))}  ({pct_badge(c('Gold'))})\n\n"
 
-━━━━━━━━━━━━━━━━━━━━
-MyInvestmentMarkets"""
+        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"⚡️ MIM Global Financial Services"
+    )
 
     tg_send(msg)
     print("✅ EU briefing sent.")
@@ -275,60 +260,73 @@ MyInvestmentMarkets"""
 # SESSION: ASIA
 # ══════════════════════════════════════════════════════════════════════════════
 def run_asia():
-    date_str = datetime.now(KST).strftime("%b %d, %Y")
+    now_utc  = datetime.now(UTC)
+    date_str = now_utc.strftime("Mar %d, %Y")
+
     syms = {
-        "Nikkei 225": ("^N225",2), "Hang Seng": ("^HSI",2),
-        "KOSPI": ("^KS11",2), "Shanghai": ("000001.SS",2),
-        "USD/JPY": ("JPY=X",3), "USD/KRW": ("KRW=X",2),
-        "Gold": ("GC=F",2),
+        "Nikkei 225": ("^N225",      2),
+        "Hang Seng":  ("^HSI",       2),
+        "KOSPI":      ("^KS11",      2),
+        "Shanghai":   ("000001.SS",  2),
+        "USD/JPY":    ("JPY=X",      3),
+        "USD/KRW":    ("KRW=X",      2),
+        "Gold":       ("GC=F",       2),
     }
     P = fetch_prices(syms)
 
-    mkt = "\n".join([
-        "[ASIA EQUITIES]", pline(P,"Nikkei 225"), pline(P,"Hang Seng"),
-        pline(P,"KOSPI"), pline(P,"Shanghai"),
-        "\n[FX]", pline(P,"USD/JPY"), pline(P,"USD/KRW"),
-        "\n[COMMODITIES]", pline(P,"Gold"),
+    def p(name): return P[name][0]
+    def c(name): return P[name][1]
+
+    data_str = "\n".join([
+        f"Nikkei 225: {fmt(p('Nikkei 225'))} ({c('Nikkei 225'):+.2f}%)",
+        f"Hang Seng: {fmt(p('Hang Seng'))} ({c('Hang Seng'):+.2f}%)",
+        f"KOSPI: {fmt(p('KOSPI'))} ({c('KOSPI'):+.2f}%)",
+        f"Shanghai: {fmt(p('Shanghai'))} ({c('Shanghai'):+.2f}%)",
+        f"USD/JPY: {fmt(p('USD/JPY'),3)} ({c('USD/JPY'):+.2f}%)",
+        f"USD/KRW: {fmt(p('USD/KRW'),2)} ({c('USD/KRW'):+.2f}%)",
+        f"Gold: {fmt(p('Gold'))} ({c('Gold'):+.2f}%)",
     ])
 
     sys_prompt = (
         "You are a senior Asia-Pacific macro analyst at a global prime brokerage. "
         "Write an institutional-grade Asia market close briefing. "
-        "Voice: Bloomberg/Reuters standard. No emojis. No AI self-reference. "
+        "Voice: Bloomberg/Reuters editorial standard. No hype. No emojis. No AI self-reference. "
         "Structure: 4 paragraphs — session theme / Japan-Nikkei / China-HK / Korea-KOSPI & outlook. "
         "Use exact figures."
     )
-    narrative = gemini(sys_prompt, f"Write Asia market close briefing for {date_str}:\n\n{mkt}")
+    narrative = gemini_narrative(
+        sys_prompt,
+        f"Write Asia market close briefing for {date_str}:\n\n{data_str}"
+    )
     if not narrative:
-        narrative = f"Asian equities closed the session with the Nikkei 225 moving {fc(P['Nikkei 225'][2])} to {fmt(P['Nikkei 225'][0])}."
+        narrative = f"Asian equities closed with the Nikkei 225 at {fmt(p('Nikkei 225'))} ({c('Nikkei 225'):+.2f}%)."
 
-    nk,_,nkc,_=P["Nikkei 225"]; hs,_,hsc,_=P["Hang Seng"]
-    ks,_,ksc,_=P["KOSPI"]; sh,_,shc,_=P["Shanghai"]
-    jy,jyp,jyc,_=P["USD/JPY"]; kr,krp,krc,_=P["USD/KRW"]
-    gl,glp,glc,_=P["Gold"]
+    msg = (
+        f"🔔 <b>[MIM DAILY BRIEFING] Asian Market Close</b>\n\n"
+        f"🗓 {date_str}\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n\n"
 
-    msg = f"""━━━━━━━━━━━━━━━━━━━━
-📊 <b>ASIA MARKET CLOSE — {date_str}</b>
-━━━━━━━━━━━━━━━━━━━━
+        f"📝 <b>Market Overview</b>\n"
+        f"{narrative}\n\n"
 
-{narrative}
+        f"━━━━━━━━━━━━━━━━━━━━\n\n"
 
-━━━━━━━━━━━━━━━━━━━━
-🌏 <b>ASIA EQUITIES</b>
-Nikkei 225    {fc(nkc)} → {fmt(nk)}  {ar(nkc)}
-Hang Seng     {fc(hsc)} → {fmt(hs)}  {ar(hsc)}
-KOSPI         {fc(ksc)} → {fmt(ks)}  {ar(ksc)}
-Shanghai      {fc(shc)} → {fmt(sh)}  {ar(shc)}
+        f"📊 <b>ASIA EQUITIES</b>\n"
+        f"🇯🇵 Nikkei 225: {fmt(p('Nikkei 225'))}  ({pct_badge(c('Nikkei 225'))})\n"
+        f"🇭🇰 Hang Seng:  {fmt(p('Hang Seng'))}  ({pct_badge(c('Hang Seng'))})\n"
+        f"🇰🇷 KOSPI:       {fmt(p('KOSPI'))}  ({pct_badge(c('KOSPI'))})\n"
+        f"🇨🇳 Shanghai:    {fmt(p('Shanghai'))}  ({pct_badge(c('Shanghai'))})\n\n"
 
-💱 <b>FX</b>
-USD/JPY  {fmt(jyp,3)} → {fmt(jy,3)} {ar(jyc)}
-USD/KRW  {fmt(krp,2)} → {fmt(kr,2)} {ar(krc)}
+        f"💱 <b>FX</b>\n"
+        f"💴 USD/JPY: {fmt(p('USD/JPY'),3)}  ({pct_badge(c('USD/JPY'))})\n"
+        f"🇰🇷 USD/KRW: {fmt(p('USD/KRW'),2)}  ({pct_badge(c('USD/KRW'))})\n\n"
 
-🥇 <b>COMMODITIES</b>
-Gold     {fmt(glp)} → {fmt(gl)} {ar(glc)}
+        f"🥇 <b>COMMODITIES</b>\n"
+        f"🥇 Gold: {fmt(p('Gold'))}  ({pct_badge(c('Gold'))})\n\n"
 
-━━━━━━━━━━━━━━━━━━━━
-MyInvestmentMarkets"""
+        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"⚡️ MIM Global Financial Services"
+    )
 
     tg_send(msg)
     print("✅ Asia briefing sent.")

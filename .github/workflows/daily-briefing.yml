@@ -2,9 +2,9 @@ name: Daily Market Briefing
 
 on:
   schedule:
-    - cron: '0 7 * * 1-5'
-    - cron: '30 16 * * 1-5'
-    - cron: '0 21 * * 1-5'
+    - cron: '0 7 * * 1-5'    # Asia  close  UTC 07:00 (KST 16:00)
+    - cron: '30 16 * * 1-5'  # Europe close UTC 16:30 (KST 01:30)
+    - cron: '0 21 * * 1-5'   # US    close  UTC 21:00 (KST 06:00)
   workflow_dispatch:
     inputs:
       session:
@@ -26,7 +26,7 @@ jobs:
       - name: Run Asia Briefing
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GEMINI_API_KEY2: ${{ secrets.GEMINI_API_KEY2 }}
         run: python api/daily-briefing.py asia
 
   eu-briefing:
@@ -42,7 +42,7 @@ jobs:
       - name: Run EU Briefing
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GEMINI_API_KEY2: ${{ secrets.GEMINI_API_KEY2 }}
         run: python api/daily-briefing.py eu
 
   us-briefing:
@@ -58,5 +58,5 @@ jobs:
       - name: Run US Briefing
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GEMINI_API_KEY2: ${{ secrets.GEMINI_API_KEY2 }}
         run: python api/daily-briefing.py us
