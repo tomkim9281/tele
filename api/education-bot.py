@@ -174,10 +174,20 @@ def get_ohlcv(symbol, period="90d"):
 
 def build_chart_and_indicators(strategy):
     """Generate chart using mplfinance and compute indicators via pandas-ta"""
-    import pandas as pd
-    import pandas_ta as ta
-    import mplfinance as mpf
-    import matplotlib
+    try:
+        import pandas as pd
+        import pandas_ta as ta
+        import mplfinance as mpf
+        import matplotlib
+    except ImportError:
+        import subprocess
+        import sys
+        subprocess.check_call([sys.executable, "-m", "pip", "install", "pandas-ta", "mplfinance", "matplotlib", "yfinance", "pandas"])
+        import pandas as pd
+        import pandas_ta as ta
+        import mplfinance as mpf
+        import matplotlib
+
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
