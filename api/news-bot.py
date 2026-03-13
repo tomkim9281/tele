@@ -26,16 +26,18 @@ SENT_IDS_FILE = "/tmp/sent_news_ids.json"
 # Only send news published in the last 10 minutes per run (5min cron overlap buffer)
 MAX_AGE_MINUTES = 10
 
-# Dedicated market/FX feeds: post ALL articles (no keyword filter)
+# Dedicated market/FX/financial feeds: post ALL articles (no keyword filter)
 MARKET_RSS_SOURCES = [
     ("FXStreet",       "https://www.fxstreet.com/rss"),
     ("ForexLive",      "https://www.forexlive.com/feed/news"),
-    ("Cointelegraph",  "https://cointelegraph.com/rss")
+    ("Cointelegraph",  "https://cointelegraph.com/rss"),
 ]
 
-# General news sites: only post if matches finance keywords
+# General news sites: keyword filter applied (finance/economy only)
 FILTERED_RSS_SOURCES = [
-    ("CNBC Markets",   "https://search.cnbc.com/rs/search/combinedcms/view.xml?partnerId=wrss01&id=10000664")
+    ("CNBC Markets",   "https://search.cnbc.com/rs/search/combinedcms/view.xml?partnerId=wrss01&id=10000664"),
+    ("BBC Business",   "https://feeds.bbci.co.uk/news/business/rss.xml"),
+    ("Guardian Biz",   "https://www.theguardian.com/business/rss"),
 ]
 
 HIGH_IMPACT_KEYWORDS = [
