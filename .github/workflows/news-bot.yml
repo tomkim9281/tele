@@ -1,9 +1,9 @@
-name: News Bot
+name: Real-Time News Bot
 
 on:
   schedule:
-    # Every 15 minutes around the clock
-    - cron: '*/15 * * * *'
+    # Every 5 minutes — FXStreet, ForexLive, CNBC, Cointelegraph, CryptoPanic
+    - cron: '*/5 * * * *'
   workflow_dispatch:
 
 jobs:
@@ -15,7 +15,7 @@ jobs:
         with:
           python-version: '3.11'
       - name: Install dependencies
-        run: pip install requests
+        run: pip install requests python-dateutil
       - name: Run News Bot
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
