@@ -2,12 +2,19 @@ name: Daily Market Briefing
 
 on:
   schedule:
-    # Every weekday at UTC 21:00 = KST 06:00
+    - cron: '0 7 * * 1-5'
+    - cron: '30 16 * * 1-5'
     - cron: '0 21 * * 1-5'
-  workflow_dispatch:  # Allow manual trigger
+  workflow_dispatch:
+    inputs:
+      session:
+        description: 'Session: us, eu, asia'
+        required: true
+        default: 'us'
 
 jobs:
-  send-briefing:
+  asia-briefing:
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.session == 'asia' || (github.event_name == 'schedule' && github.event.schedule == '0 7 * * 1-5')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -15,9 +22,41 @@ jobs:
         with:
           python-version: '3.11'
       - name: Install dependencies
-        run: pip install yfinance requests
-      - name: Run Daily Briefing Bot
+        run: pip install requests
+      - name: Run Asia Briefing
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-        run: python api/daily-briefing.py
+        run: python api/daily-briefing.py asia
+
+  eu-briefing:
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.session == 'eu' || (github.event_name == 'schedule' && github.event.schedule == '30 16 * * 1-5')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: pip install requests
+      - name: Run EU Briefing
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: python api/daily-briefing.py eu
+
+  us-briefing:
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.session == 'us' || (github.event_name == 'schedule' && github.event.schedule == '0 21 * * 1-5')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: pip install requests
+      - name: Run US Briefing
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: python api/daily-briefing.py us
