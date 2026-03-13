@@ -119,25 +119,26 @@ def send_weekly_schedule():
     week_start = now_utc.strftime("%b %d")
     week_end   = (now_utc + timedelta(days=6)).strftime("%b %d, %Y")
 
-    msg = (
+    header = (
         f"📅 <b>THIS WEEK'S KEY EVENTS</b>\n"
         f"⏱ Timezone: UTC  |  Week of {week_start} – {week_end}\n"
-        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"━━━━━━━━━━━━━━━━━━━━"
     )
 
-    # Group by date
     from collections import defaultdict
-    by_day = defaultdict(list)
-    for e in all_events:
-        by_day[e["date"]].append(e)
 
-    # Sort dates
     def parse_date(d):
         try:
             return datetime.strptime(d, "%b %d, %Y")
         except Exception:
             return datetime.min
 
+    by_day = defaultdict(list)
+    for e in all_events:
+        by_day[e["date"]].append(e)
+
+    # Build each day block
+    day_blocks = []
     for date_key in sorted(by_day.keys(), key=parse_date):
         day_events = sorted(by_day[date_key],
                             key=lambda x: x["time_utc"] if x["time_utc"] else "99:99")
@@ -146,20 +147,35 @@ def send_weekly_schedule():
         except Exception:
             day_label = date_key
 
-        msg += f"\n🗓 <b>{day_label}</b>\n"
+        event_lines = []
         for e in day_events:
             cur = e.get("currency", e["country"])
             dot = impact_dot(e["impact"])
-            f_emoji = flag(e["country"])
-            msg += f"{f_emoji} {e['time_utc']} [{cur}] {dot} {e['title']}\n"
-            parts = []
-            if e["forecast"]: parts.append(f"📊 Fcst: {e['forecast']}")
-            if e["previous"]: parts.append(f"Prev: {e['previous']}")
-            if e["actual"]:   parts.append(f"✅ Actual: {e['actual']}")
-            if parts:
-                msg += f"↳ {' | '.join(parts)}\n"
+            f_em = flag(e["country"])
+            line = f"{f_em} {e['time_utc']} [{cur}] {dot} <b>{e['title']}</b>"
 
-    msg += "\n━━━━━━━━━━━━━━━━━━━━\n⚡️ MIM Global Financial Services"
+            # Sub-line: forecast/previous or speech label
+            title_lower = e["title"].lower()
+            if any(w in title_lower for w in ["speak", "speech", "press conference", "testimony", "hearing"]):
+                line += f"\n↳ 🎙 <i>Speeches &amp; Events</i>"
+            else:
+                parts = []
+                if e["forecast"]: parts.append(f"Fcst: {e['forecast']}")
+                if e["previous"]: parts.append(f"Prev: {e['previous']}")
+                if e["actual"]:   parts.append(f"✅ Actual: {e['actual']}")
+                if parts:
+                    line += f"\n↳ 📊 {' | '.join(parts)}"
+
+            event_lines.append(line)
+
+        # Day section: header + events separated by blank line
+        day_block = f"🗓 <b>{day_label}</b>\n" + "\n\n".join(event_lines)
+        day_blocks.append(day_block)
+
+    footer = "━━━━━━━━━━━━━━━━━━━━\n⚡️ MIM Global Financial Services"
+
+    # Join: header + blank line + day blocks separated by blank line + footer
+    msg = header + "\n\n" + "\n\n".join(day_blocks) + "\n\n" + footer
 
     tg_send(msg)
     print("✅ Weekly schedule sent.")
