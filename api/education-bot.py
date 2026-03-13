@@ -353,7 +353,6 @@ CRITICAL RULES:
     return result["candidates"][0]["content"]["parts"][0]["text"].strip()
 
 def tg_send_photo(photo_bytes, caption):
-    import multipart
     # Use Telegram sendPhoto with multipart/form-data
     boundary = "----TelegramBotBoundary"
     body = b""
