@@ -13,8 +13,19 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+
+      # Restore sent IDs cache between runs
+      - name: Restore sent IDs cache
+        uses: actions/cache@v4
+        with:
+          path: /tmp/sent_news_ids.json
+          key: sent-news-ids-${{ github.run_id }}
+          restore-keys: |
+            sent-news-ids-
+
       - name: Install dependencies
         run: pip install requests python-dateutil
+
       - name: Run News Bot
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}

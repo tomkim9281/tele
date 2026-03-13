@@ -23,8 +23,8 @@ TOPIC_NEWS  = 3  # "re" thread
 
 KST = timezone(timedelta(hours=9))
 SENT_IDS_FILE = "/tmp/sent_news_ids.json"
-# Only send news published in the last 10 minutes per run (5min cron overlap buffer)
-MAX_AGE_MINUTES = 10
+# Only send news published in the last 30 minutes per run (dedup via sent_ids cache)
+MAX_AGE_MINUTES = 30
 
 # Dedicated market/FX/financial feeds: post ALL articles (no keyword filter)
 MARKET_RSS_SOURCES = [
