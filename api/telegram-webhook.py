@@ -224,9 +224,11 @@ def build_price_text(sym_name, cat_key):
 
 # ── Main keyboard message ───────────────────────────────────────────────────
 MAIN_TEXT = (
-    "📊 <b>MyInvestmentMarkets — Live Prices</b>\n"
-    "━━━━━━━━━━━━━━━━━━━━\n"
-    "Select a category to view live prices:"
+    "⚡️ <b>MIM Live Market Terminal</b>\n\n"
+    "Access institutional-grade market data instantly.\n\n"
+    "Tap the button below to launch your interactive terminal and track real-time quotes, "
+    "30-day candlestick charts, and live trends directly within Telegram.\n\n"
+    "<i>🌐 Equities · Indices · Crypto · Forex · Commodities</i>"
 )
 
 # ── Callback handler ────────────────────────────────────────────────────────
