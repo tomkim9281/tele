@@ -45,8 +45,9 @@ CATEGORIES = {
 
 # ── Yahoo Finance helper ─────────────────────────────────────────────────────
 def get_data(ticker):
+    # 30-minute intraday bars for today
     url = (f"https://query1.finance.yahoo.com/v8/finance/chart/"
-           f"{urllib.parse.quote(ticker)}?interval=1h&range=5d")
+           f"{urllib.parse.quote(ticker)}?interval=30m&range=1d")
     req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
     with urllib.request.urlopen(req, timeout=10) as r:
         resp = json.loads(r.read())
@@ -61,15 +62,14 @@ def get_data(ticker):
 
     timestamps = result.get("timestamp") or result.get("timestamps", [])
     q = result["indicators"]["quote"][0]
-    seen, ohlc = set(), []
+    ohlc = []
     for i, ts in enumerate(timestamps):
         try:
             o, h, l, c = q["open"][i], q["high"][i], q["low"][i], q["close"][i]
             if None in (o, h, l, c): continue
-            dt = datetime.fromtimestamp(ts, tz=timezone.utc).strftime("%Y-%m-%d %H:00")
-            if dt in seen: continue
-            seen.add(dt)
-            ohlc.append({"time": dt, "open": round(o,6), "high": round(h,6),
+            
+            # Use Unix timestamps (seconds) for lightweight-charts intraday
+            ohlc.append({"time": int(ts), "open": round(o,6), "high": round(h,6),
                          "low": round(l,6), "close": round(c,6)})
         except Exception:
             pass
@@ -78,191 +78,373 @@ def get_data(ticker):
 
 # ── Embedded HTML ─────────────────────────────────────────────────────────────
 HTML = r"""<!DOCTYPE html>
-<html lang="ko">
+<html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no">
-<title>MIM Live Quotes</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>MIM Live Terminal</title>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
+<script src="https://unpkg.com/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,400;0,500;0,600;0,700;0,800;1,400&display=swap" rel="stylesheet">
 <style>
-*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
-:root{--bg:#0f1117;--card:#1a1d26;--border:rgba(255,255,255,.07);--up:#00d4aa;--dn:#ff4757;--text:#e8e8f0;--muted:#6b6f8a;--accent:#00d4aa}
-body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;overflow-x:hidden;min-height:100dvh}
-header{display:flex;align-items:center;justify-content:space-between;padding:14px 16px 10px;border-bottom:1px solid var(--border);position:sticky;top:0;background:var(--bg);z-index:99}
-header .logo{display:flex;align-items:center;gap:8px}
-header .dot{width:28px;height:28px;border-radius:8px;background:linear-gradient(135deg,#00d4aa,#0066ff);display:flex;align-items:center;justify-content:center;font-size:14px}
-header h1{font-size:16px;font-weight:700;letter-spacing:-.3px}
-header p{font-size:10px;color:var(--muted)}
-#closeBtn{background:none;border:none;color:var(--muted);font-size:18px;cursor:pointer;padding:4px}
-#tabs{display:flex;overflow-x:auto;border-bottom:1px solid var(--border);padding:0 8px;scrollbar-width:none}
-#tabs::-webkit-scrollbar{display:none}
-#tabs button{flex-shrink:0;background:none;border:none;cursor:pointer;padding:12px 14px;font-size:13px;font-weight:500;color:var(--muted);border-bottom:2px solid transparent;transition:color .2s,border-color .2s}
-#tabs button.active{color:var(--accent);border-bottom-color:var(--accent)}
-#symbols{display:flex;flex-wrap:wrap;gap:8px;padding:12px 16px}
-#symbols button{flex:1 1 calc(33% - 8px);min-width:80px;max-width:160px;padding:8px 4px;background:var(--card);border:1px solid var(--border);border-radius:10px;color:var(--text);font-size:12px;font-weight:500;cursor:pointer;transition:all .15s}
-#symbols button.active{background:var(--accent);color:#000;border-color:var(--accent)}
-#price-card{margin:0 16px 12px;padding:16px;background:var(--card);border:1px solid var(--border);border-radius:16px;display:none}
-#price-card .row1{display:flex;justify-content:space-between;align-items:flex-start}
-#price-card .sym{font-size:18px;font-weight:700}
-#price-card .prc{font-size:22px;font-weight:700;text-align:right}
-#price-card .chg{font-size:12px;font-weight:600;margin-top:2px}
-#price-card .hl{display:flex;justify-content:space-between;font-size:11px;color:var(--muted);margin-top:12px;padding-top:10px;border-top:1px solid var(--border)}
-#price-card .hl span{color:var(--text)}
-.up{color:var(--up)}.dn{color:var(--dn)}
-#chart-card{margin:0 16px 24px;background:var(--card);border:1px solid var(--border);border-radius:16px;overflow:hidden;display:none}
-#chart-img{width:100%;display:block;border-radius:12px 12px 0 0}
-#chart-loading{padding:60px 0;text-align:center;color:var(--muted);font-size:13px}
-#chart-footer{text-align:center;font-size:10px;color:var(--muted);padding:6px 0}
-#loading{display:none;text-align:center;padding:40px;color:var(--muted);font-size:13px}
-.spinner{width:28px;height:28px;margin:0 auto 10px;border:3px solid rgba(255,255,255,.1);border-left-color:var(--accent);border-radius:50%;animation:spin .8s linear infinite}
-@keyframes spin{to{transform:rotate(360deg)}}
-#error-msg{display:none;text-align:center;padding:20px;color:var(--dn);font-size:13px}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+:root{
+  --bg:#0a0c12;--s1:#111420;--s2:#141824;
+  --border:rgba(255,255,255,0.06);--border2:rgba(255,255,255,0.10);
+  --up:#22d3b0;--dn:#f04b5a;
+  --accent:#22d3b0;
+  --text:#e4e6f0;--sub:#8b91a8;--muted:#58607c;
+  --r:10px;
+}
+html,body{
+  background:var(--bg);color:var(--text);
+  font-family:'Inter',-apple-system,sans-serif;
+  -webkit-font-smoothing:antialiased;
+  overflow-x:hidden;min-height:100dvh;
+}
+
+/* ── HEADER ── */
+header{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:14px 16px 12px;
+  border-bottom:1px solid var(--border);
+  background:var(--bg);
+  position:sticky;top:0;z-index:100;
+}
+.hd-left{display:flex;align-items:center;gap:10px;}
+.hd-icon{
+  width:32px;height:32px;border-radius:9px;flex-shrink:0;
+  background:linear-gradient(135deg,#22d3b0 0%,#0055ff 100%);
+  display:flex;align-items:center;justify-content:center;font-size:16px;
+  box-shadow:0 0 16px rgba(34,211,176,0.25);
+}
+.hd-title{font-size:15px;font-weight:700;letter-spacing:-.3px;}
+.hd-sub{font-size:10px;color:var(--muted);margin-top:1px;letter-spacing:.3px;font-weight:400;}
+.live-pill{
+  display:flex;align-items:center;gap:5px;
+  background:rgba(34,211,176,0.10);
+  border:1px solid rgba(34,211,176,0.20);
+  border-radius:20px;padding:4px 10px;
+  font-size:10px;font-weight:600;color:var(--accent);letter-spacing:.5px;
+}
+.live-dot{
+  width:6px;height:6px;border-radius:50%;background:var(--accent);
+  animation:blink 1.8s ease-in-out infinite;
+}
+@keyframes blink{0%,100%{opacity:1;transform:scale(1);}50%{opacity:.4;transform:scale(.8);}}
+
+/* ── TABS ── */
+#tabs{
+  display:flex;overflow-x:auto;scrollbar-width:none;
+  border-bottom:1px solid var(--border);
+  padding:6px 12px 0;gap:2px;
+}
+#tabs::-webkit-scrollbar{display:none;}
+#tabs button{
+  flex-shrink:0;background:none;border:none;cursor:pointer;
+  padding:9px 14px 10px;font-size:13px;font-weight:500;
+  color:var(--muted);border-bottom:2px solid transparent;
+  font-family:inherit;letter-spacing:.1px;
+  transition:color .18s,border-color .18s;
+}
+#tabs button.active{color:var(--accent);border-bottom-color:var(--accent);font-weight:600;}
+
+/* ── SYMBOL GRID ── */
+.grid-label{
+  padding:10px 16px 4px;
+  font-size:10px;font-weight:500;letter-spacing:.8px;
+  color:var(--muted);text-transform:uppercase;
+}
+#symbols{
+  display:grid;grid-template-columns:repeat(3,1fr);
+  gap:7px;padding:8px 14px 10px;
+}
+#symbols.wide{grid-template-columns:repeat(4,1fr);gap:5px;padding:8px 10px 10px;}
+#symbols button{
+  padding:10px 6px;
+  background:var(--s2);
+  border:1px solid var(--border);
+  border-radius:var(--r);
+  color:var(--sub);
+  font-size:11.5px;font-weight:600;
+  font-family:inherit;cursor:pointer;
+  transition:all .15s;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+  letter-spacing:.1px;
+}
+#symbols.wide button{font-size:10.5px;padding:8px 4px;}
+#symbols button:active{transform:scale(.96);}
+#symbols button.active{
+  background:rgba(34,211,176,0.12);
+  color:var(--accent);
+  border-color:rgba(34,211,176,0.35);
+  font-weight:700;
+}
+
+/* ── PRICE CARD ── */
+#price-card{
+  margin:2px 14px 10px;
+  padding:18px 16px 14px;
+  background:var(--s2);
+  border:1px solid var(--border2);
+  border-radius:16px;
+  display:none;
+}
+.pc-top{
+  display:flex;justify-content:space-between;align-items:flex-start;
+  margin-bottom:2px;
+}
+.pc-sym{font-size:17px;font-weight:700;letter-spacing:-.4px;}
+.pc-price{font-size:26px;font-weight:700;letter-spacing:-.8px;line-height:1;}
+.pc-right{text-align:right;}
+.pc-chg{
+  display:flex;align-items:center;justify-content:flex-end;gap:3px;
+  font-size:12.5px;font-weight:600;margin-top:4px;
+}
+.pc-chg.up{color:var(--up);}
+.pc-chg.dn{color:var(--dn);}
+.pc-hl{
+  display:flex;justify-content:space-between;
+  border-top:1px solid var(--border);
+  margin-top:12px;padding-top:10px;
+}
+.hl-block{display:flex;gap:4px;font-size:11px;color:var(--muted);}
+.hl-val{font-weight:600;color:var(--sub);}
+
+/* ── CHART CARD ── */
+#chart-card{
+  margin:0 14px 22px;
+  background:var(--s2);
+  border:1px solid var(--border);
+  border-radius:16px;
+  overflow:hidden;
+  display:none;
+}
+.cc-header{
+  display:flex;justify-content:space-between;align-items:center;
+  padding:10px 14px 0;
+}
+.cc-title{font-size:11px;font-weight:600;color:var(--sub);letter-spacing:.3px;}
+.cc-badges{display:flex;gap:5px;}
+.cc-badge{
+  font-size:10px;font-weight:600;letter-spacing:.3px;
+  background:rgba(255,255,255,0.04);
+  border:1px solid var(--border);
+  border-radius:6px;padding:2px 7px;
+  color:var(--muted);
+}
+.cc-badge.today{background:rgba(34,211,176,0.08);border-color:rgba(34,211,176,0.2);color:var(--accent);}
+#chart-container{width:100%;height:260px;margin-top:6px;}
+.cc-footer{
+  text-align:center;font-size:9.5px;color:var(--muted);
+  padding:6px 0 8px;letter-spacing:.3px;
+}
+
+/* ── LOADING / ERROR ── */
+#loading{
+  display:none;flex-direction:column;align-items:center;
+  padding:44px 20px;color:var(--muted);font-size:12px;gap:12px;
+}
+.spinner{
+  width:24px;height:24px;
+  border:2.5px solid rgba(255,255,255,0.08);
+  border-left-color:var(--accent);
+  border-radius:50%;animation:spin .75s linear infinite;
+}
+@keyframes spin{to{transform:rotate(360deg);}}
+#error-msg{
+  display:none;text-align:center;padding:24px 20px;
+  color:var(--dn);font-size:12.5px;line-height:1.5;
+}
 </style>
 </head>
 <body>
-<header>
-  <div class="logo"><div class="dot">📊</div><div><h1>MIM Live Quotes</h1><p>MyInvestmentMarkets</p></div></div>
-  <button id="closeBtn" onclick="Telegram.WebApp.close()">✕</button>
-</header>
-<div id="tabs"></div>
-<div id="symbols"></div>
-<div id="loading"><div class="spinner"></div>불러오는 중...</div>
-<div id="error-msg"></div>
-<div id="price-card">
-  <div class="row1"><div class="sym" id="d-sym">--</div><div><div class="prc" id="d-price">--</div><div class="chg" id="d-chg">--</div></div></div>
-  <div class="hl"><div>High &nbsp;<span id="d-high">--</span></div><div>Low &nbsp;<span id="d-low">--</span></div></div>
-</div>
-<div id="chart-card">
-  <div id="chart-loading"><div class="spinner"></div>차트 생성 중...</div>
-  <img id="chart-img" src="" alt="Candlestick Chart" style="display:none" />
-  <div id="chart-footer">30D Candlestick | MyInvestmentMarkets (MIM)</div>
-</div>
-<script>
-const tg=window.Telegram&&window.Telegram.WebApp;
-if(tg){tg.expand();tg.ready();}
-const CATS={
-  stocks:     {label:"주식",    syms:["AAPL","AMZN","GOOG","MSFT","NFLX","TSLA","AMD","GOOGL","NVDA","META"]},
-  indices:    {label:"지수",    syms:["EURO 50","US 30","HK 50","JP 225","UK 100","US 100","US 500"]},
-  crypto:     {label:"암호화폐",syms:["BTC/USD","ETH/USD","XRP/USD","DOGE/USD","SOL/USD"]},
-  forex:      {label:"외환",    syms:["AUD/CAD","AUD/CHF","AUD/JPY","AUD/NZD","AUD/USD","CAD/JPY","CHF/JPY","EUR/AUD","EUR/CHF","EUR/GBP","EUR/JPY","EUR/USD","GBP/AUD","GBP/JPY","GBP/USD","GBP/CAD","GBP/NZD","NZD/JPY","NZD/USD","USD/CAD","USD/CHF","USD/HKD","USD/JPY","USD/SGD","USD/CNH","USD/THB"]},
-  commodities:{label:"원자재",  syms:["Silver","Gold","WTI Crude","Brent Crude","Natural Gas"]}
-};
-let curCat="indices",curSym="US 100";
 
-function fmt(sym,v){
-  if(v==null||isNaN(v))return'--';
-  let d=2;
-  if(v<0.01)d=6;else if(v<1)d=5;else if(v<10)d=4;else if(v>1000)d=2;
-  if(sym.includes('JPY')||sym==='Silver')d=3;
+<header>
+  <div class="hd-left">
+    <div class="hd-icon">📈</div>
+    <div>
+      <div class="hd-title">MIM Live Terminal</div>
+      <div class="hd-sub">MIM Global Financial Services</div>
+    </div>
+  </div>
+  <div class="live-pill"><div class="live-dot"></div>LIVE</div>
+</header>
+
+<div id="tabs"></div>
+<div class="grid-label">SELECT INSTRUMENT</div>
+<div id="symbols"></div>
+
+<div id="loading"><div class="spinner"></div>Loading market data...</div>
+<div id="error-msg"></div>
+
+<div id="price-card">
+  <div class="pc-top">
+    <div class="pc-sym" id="d-sym">--</div>
+    <div class="pc-right">
+      <div class="pc-price" id="d-price">--</div>
+      <div class="pc-chg" id="d-chg">--</div>
+    </div>
+  </div>
+  <div class="pc-hl">
+    <div class="hl-block">High <div class="hl-val" id="d-high">--</div></div>
+    <div class="hl-block">Low <div class="hl-val" id="d-low">--</div></div>
+  </div>
+</div>
+
+<div id="chart-card">
+  <div class="cc-header">
+    <div class="cc-title" id="chart-title">--</div>
+    <div class="cc-badges">
+      <div class="cc-badge today">TODAY</div>
+      <div class="cc-badge">30 MIN</div>
+    </div>
+  </div>
+  <div id="chart-container"></div>
+  <div class="cc-footer">Intraday 30min Candlestick · MIM Global Financial Services</div>
+</div>
+
+<script>
+const tg = window.Telegram && window.Telegram.WebApp;
+if (tg) { tg.expand(); tg.ready(); }
+
+const CATS = {
+  indices:     { label:'Indices',     syms:['EURO 50','US 30','HK 50','JP 225','UK 100','US 100','US 500'] },
+  stocks:      { label:'Stocks',      syms:['AAPL','AMZN','GOOG','MSFT','NFLX','TSLA','AMD','NVDA','META'] },
+  crypto:      { label:'Crypto',      syms:['BTC/USD','ETH/USD','XRP/USD','DOGE/USD','SOL/USD'] },
+  forex:       { label:'Forex',       syms:['EUR/USD','GBP/USD','USD/JPY','AUD/USD','USD/CAD','USD/CHF','EUR/JPY','GBP/JPY','EUR/GBP','NZD/USD','USD/CNH','EUR/AUD','GBP/AUD','AUD/JPY','CHF/JPY','CAD/JPY','EUR/CHF','GBP/CAD','GBP/NZD','AUD/CAD','AUD/CHF','AUD/NZD','NZD/JPY','USD/HKD','USD/SGD','USD/THB'] },
+  commodities: { label:'Commodities', syms:['Gold','Silver','WTI Crude','Brent Crude','Natural Gas'] },
+};
+
+let curCat='indices', curSym='US 100', chartObj=null, cSeries=null;
+
+function initChart() {
+  if (chartObj) return;
+  const el = document.getElementById('chart-container');
+  chartObj = LightweightCharts.createChart(el, {
+    width: el.clientWidth,
+    height: 260,
+    layout: {
+      background: { type:'solid', color:'transparent' },
+      textColor:'#58607c',
+      fontSize: 11,
+    },
+    grid: {
+      vertLines: { color:'rgba(255,255,255,0.03)' },
+      horzLines: { color:'rgba(255,255,255,0.04)' },
+    },
+    timeScale: {
+      borderColor:'rgba(255,255,255,0.06)',
+      timeVisible:true,
+      secondsVisible:false,
+      ticksVisible:false,
+      fixLeftEdge:true,
+      fixRightEdge:true,
+    },
+    rightPriceScale: {
+      borderColor:'rgba(255,255,255,0.06)',
+      scaleMargins:{ top:0.12, bottom:0.12 },
+      autoScale:true,
+    },
+    crosshair: {
+      vertLine:{ color:'rgba(255,255,255,0.15)', labelBackgroundColor:'#1a1d26' },
+      horzLine:{ color:'rgba(255,255,255,0.15)', labelBackgroundColor:'#1a1d26' },
+    },
+    handleScroll:true,
+    handleScale:true,
+  });
+  
+  cSeries = chartObj.addCandlestickSeries({
+    upColor:'#22d3b0', downColor:'#f04b5a',
+    borderVisible:false,
+    wickUpColor:'#22d3b0', wickDownColor:'#f04b5a',
+  });
+  
+  window.addEventListener('resize', () => chartObj.applyOptions({ width: el.clientWidth }));
+}
+
+function fmt(sym, v) {
+  if (v == null || isNaN(v)) return '--';
+  let d = 2;
+  if (v < 0.01) d = 6;
+  else if (v < 1) d = 5;
+  else if (v < 10) d = 4;
+  if (sym && (sym.includes('JPY') || sym==='Silver')) d = 3;
   return Number(v).toLocaleString('en-US',{minimumFractionDigits:d,maximumFractionDigits:d});
 }
 
-async function buildChartImg(ohlc, sym) {
-  const imgEl = document.getElementById('chart-img');
-  const loadEl = document.getElementById('chart-loading');
-  imgEl.style.display = 'none';
-  loadEl.style.display = 'block';
+async function loadQuote(cat, sym) {
+  const $load = document.getElementById('loading');
+  const $err  = document.getElementById('error-msg');
+  const $pc   = document.getElementById('price-card');
+  const $cc   = document.getElementById('chart-card');
 
-  // Convert OHLC to QuickChart candlestick format (x = ms timestamp)
-  const data = ohlc.map(c => ({
-    x: new Date(c.time).getTime(),
-    o: c.open, h: c.high, l: c.low, c: c.close
-  }));
-
-  const chartCfg = {
-    type: 'candlestick',
-    data: {
-      datasets: [{
-        label: sym,
-        data: data,
-        color: {up:'rgba(0,212,170,1)', down:'rgba(255,71,87,1)', unchanged:'rgba(136,136,136,1)'},
-        borderColor: {up:'rgba(0,212,170,1)', down:'rgba(255,71,87,1)', unchanged:'rgba(136,136,136,1)'}
-      }]
-    },
-    options: {
-      legend: {display: false},
-      plugins: {
-        legend: {display: false},
-        title: {display:true, text:'MIM — '+sym+' 5D (1H)', color:'#666', font:{size:11}}
-      },
-      scales: {
-        x: {type:'timeseries', time:{unit:'hour', displayFormats:{hour:'M/D HH:mm'}}, ticks:{color:'#888',maxTicksLimit:4,autoSkip:true}, grid:{color:'rgba(255,255,255,0.04)'}},
-        y: {ticks:{color:'#888'}, grid:{color:'rgba(255,255,255,0.04)'}}
-      }
-    }
-  };
+  $load.style.display='flex';
+  $err.style.display='none';
+  $pc.style.display='none';
+  $cc.style.display='none';
 
   try {
-    const resp = await fetch('https://quickchart.io/chart/create', {
-      method: 'POST',
-      headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({width:500, height:260, backgroundColor:'#1a1d26', version:3, chart: chartCfg})
-    });
-    const json = await resp.json();
-    if (json.url) {
-      imgEl.onload = () => { loadEl.style.display='none'; imgEl.style.display='block'; };
-      imgEl.onerror = () => { loadEl.textContent='차트를 불러올 수 없습니다.'; };
-      imgEl.src = json.url;
-    } else {
-      loadEl.textContent = '차트 생성 실패';
+    const res = await fetch(`/api/quote?cat=${encodeURIComponent(cat)}&sym=${encodeURIComponent(sym)}`);
+    const d   = await res.json();
+    if (d.error) throw new Error(d.error);
+
+    document.getElementById('d-sym').textContent   = sym;
+    document.getElementById('d-price').textContent = fmt(sym, d.price);
+    const pct = Number(d.change_pct || 0);
+    const chgEl = document.getElementById('d-chg');
+    chgEl.innerHTML = (pct >= 0 ? '▲' : '▼') + ' ' + Math.abs(pct).toFixed(2) + '%';
+    chgEl.className = 'pc-chg ' + (pct >= 0 ? 'up' : 'dn');
+    document.getElementById('d-high').textContent = fmt(sym, d.high);
+    document.getElementById('d-low').textContent  = fmt(sym, d.low);
+    $pc.style.display='block';
+
+    if (d.ohlc && d.ohlc.length > 1) {
+      initChart();
+      cSeries.setData(d.ohlc);
+      chartObj.timeScale().fitContent();
+      document.getElementById('chart-title').textContent = sym + ' · Today';
+      $cc.style.display='block';
     }
+
+    if (tg && tg.HapticFeedback) tg.HapticFeedback.impactOccurred('light');
   } catch(e) {
-    loadEl.textContent = '차트 오류: '+e.message;
+    $err.textContent = '⚠ Unable to load data for ' + sym + '. Please try again.';
+    $err.style.display='block';
+  } finally {
+    $load.style.display='none';
   }
 }
 
-async function loadQuote(cat,sym){
-  document.getElementById('loading').style.display='block';
-  document.getElementById('error-msg').style.display='none';
-  document.getElementById('price-card').style.display='none';
-  document.getElementById('chart-card').style.display='none';
-  try{
-    const res=await fetch('/api/quote?cat='+encodeURIComponent(cat)+'&sym='+encodeURIComponent(sym));
-    const d=await res.json();
-    if(d.error)throw new Error(d.error);
-    document.getElementById('d-sym').textContent=sym;
-    document.getElementById('d-price').textContent=fmt(sym,d.price);
-    const pct=Number(d.change_pct||0);
-    const chgEl=document.getElementById('d-chg');
-    chgEl.textContent=(pct>=0?'+':'')+pct.toFixed(2)+'% '+(pct>=0?'▲':'▼');
-    chgEl.className='chg '+(pct>=0?'up':'dn');
-    document.getElementById('d-high').textContent=fmt(sym,d.high);
-    document.getElementById('d-low').textContent=fmt(sym,d.low);
-    document.getElementById('price-card').style.display='block';
-    if(d.ohlc&&d.ohlc.length>1){
-      document.getElementById('chart-card').style.display='block';
-      buildChartImg(d.ohlc, sym);  // async, shows spinner while loading
-    }
-    if(tg&&tg.HapticFeedback)tg.HapticFeedback.impactOccurred('light');
-  }catch(err){
-    const e=document.getElementById('error-msg');
-    e.textContent='⚠️ '+sym+' 데이터 오류: '+err.message;
-    e.style.display='block';
-  }finally{
-    document.getElementById('loading').style.display='none';
-  }
-}
-function renderTabs(){
-  const el=document.getElementById('tabs');el.innerHTML='';
-  Object.keys(CATS).forEach(key=>{
+function renderTabs() {
+  const el = document.getElementById('tabs');
+  el.innerHTML='';
+  Object.keys(CATS).forEach(key => {
     const btn=document.createElement('button');
     btn.textContent=CATS[key].label;
-    if(key===curCat)btn.className='active';
-    btn.onclick=()=>{curCat=key;curSym=CATS[key].syms[0];renderTabs();renderSymbols();loadQuote(curCat,curSym);};
+    if (key===curCat) btn.className='active';
+    btn.onclick=()=>{ curCat=key; curSym=CATS[key].syms[0]; renderTabs(); renderSymbols(); loadQuote(curCat,curSym); };
     el.appendChild(btn);
   });
 }
-function renderSymbols(){
-  const el=document.getElementById('symbols');el.innerHTML='';
-  CATS[curCat].syms.forEach(sym=>{
+
+function renderSymbols() {
+  const el=document.getElementById('symbols');
+  el.innerHTML='';
+  el.className=curCat==='forex'?'wide':'';
+  CATS[curCat].syms.forEach(sym => {
     const btn=document.createElement('button');
     btn.textContent=sym;
-    if(sym===curSym)btn.className='active';
-    btn.onclick=()=>{curSym=sym;renderSymbols();loadQuote(curCat,sym);};
+    if (sym===curSym) btn.className='active';
+    btn.onclick=()=>{ curSym=sym; renderSymbols(); loadQuote(curCat,curSym); };
     el.appendChild(btn);
   });
 }
-renderTabs();renderSymbols();loadQuote(curCat,curSym);
+
+renderTabs();
+renderSymbols();
+loadQuote(curCat, curSym);
 </script>
 </body>
 </html>"""
