@@ -139,6 +139,9 @@ def run_us():
     )
     if not narrative:
         narrative = f"US equity markets closed with broad-based losses. The S&P 500 fell {c('S&P 500'):.2f}% to {fmt(p('S&P 500'))}."
+    else:
+        # Prevent Telegram HTML parse errors by escaping rogue tags
+        narrative = narrative.replace("<", "&lt;").replace(">", "&gt;")
 
     # Yield formatting (show as bps change)
     y2c  = c("2Y Yield");  y10c = c("10Y Yield")
@@ -224,6 +227,9 @@ def run_eu():
     )
     if not narrative:
         narrative = f"European equities closed with the Euro Stoxx 50 at {fmt(p('Euro Stoxx 50'))} ({c('Euro Stoxx 50'):+.2f}%)."
+    else:
+        # Prevent Telegram HTML parse errors by escaping rogue tags
+        narrative = narrative.replace("<", "&lt;").replace(">", "&gt;")
 
     msg = (
         f"🔔 <b>[MIM DAILY BRIEFING] European Market Close</b>\n\n"
@@ -300,6 +306,9 @@ def run_asia():
     )
     if not narrative:
         narrative = f"Asian equities closed with the Nikkei 225 at {fmt(p('Nikkei 225'))} ({c('Nikkei 225'):+.2f}%)."
+    else:
+        # Prevent Telegram HTML parse errors by escaping rogue tags
+        narrative = narrative.replace("<", "&lt;").replace(">", "&gt;")
 
     msg = (
         f"🔔 <b>[MIM DAILY BRIEFING] Asian Market Close</b>\n\n"
