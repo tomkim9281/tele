@@ -89,7 +89,7 @@ def parse_ff_xml(week="thisweek"):
             dt_utc = None
             try:
                 if time_str and time_str not in ("All Day", ""):
-                    dt_et = datetime.strptime(f"{date_str} {time_str}", "%b %d, %Y %I:%M%p")
+                    dt_et = datetime.strptime(f"{date_str} {time_str}", "%m-%d-%Y %I:%M%p")
                     # ET ≈ UTC-4 during DST (Mar-Nov), UTC-5 otherwise
                     # Mar is DST → UTC-4
                     dt_utc = dt_et + timedelta(hours=4)
@@ -100,7 +100,7 @@ def parse_ff_xml(week="thisweek"):
             events.append({
                 "title":    ev.findtext("title", ""),
                 "country":  ev.findtext("country", ""),
-                "date":     date_str,
+                "date":     date_str,  # format: MM-DD-YYYY
                 "time_str": time_str,
                 "time_utc": dt_utc.strftime("%H:%M") if dt_utc else time_str,
                 "dt_utc":   dt_utc,
@@ -130,10 +130,122 @@ def save_sent_alerts(ids):
         pass
 
 # ── WEEKLY SCHEDULE ───────────────────────────────────────────────────────────
+def build_weekly_schedule():
+    """Build the weekly HIGH+MEDIUM impact event schedule in the channel format."""
+    from collections import defaultdict
+
+    events_this = parse_ff_xml("thisweek")
+    events_next = parse_ff_xml("nextweek")
+    all_events = events_this + events_next
+
+    # Week Monday–Sunday bounds (UTC)
+    now = datetime.now(UTC)
+    monday = now - timedelta(days=now.weekday())
+    sunday = monday + timedelta(days=6)
+    monday_d = monday.replace(hour=0, minute=0, second=0, microsecond=0)
+    sunday_d = sunday.replace(hour=23, minute=59, second=59, microsecond=0)
+
+    week_label = f"Week of {monday.strftime('%b %-d')} – {sunday.strftime('%b %-d, %Y')}"
+
+    # Filter: this week, High+Medium only
+    filtered = []
+    for e in all_events:
+        if e["impact"] not in ("High", "Medium"):
+            continue
+        if e["dt_utc"] and not (monday_d <= e["dt_utc"] <= sunday_d):
+            continue
+        filtered.append(e)
+
+    # Group by date string (FF format: MM-DD-YYYY)
+    by_day = defaultdict(list)
+    for e in filtered:
+        by_day[e["date"]].append(e)
+
+    is_speech = lambda e: (
+        any(w in e["title"] for w in ("Speaks","Speech","Press","Statement","Minutes","Testimony","Conference"))
+        and not e["forecast"] and not e["previous"]
+    )
+
+    lines = [
+        f"📅 <b>THIS WEEK'S KEY EVENTS</b>",
+        f"⏱ Timezone: UTC  |  {week_label}",
+        "━━━━━━━━━━━━━━━━━━━━",
+    ]
+
+    for date in sorted(by_day.keys(), key=lambda d: datetime.strptime(d, "%m-%d-%Y")):
+        dt_obj = datetime.strptime(date, "%m-%d-%Y")
+        lines.append(f"\n🗓 {dt_obj.strftime('%m-%d-%Y')}")
+        evs = sorted(by_day[date], key=lambda x: x["dt_utc"] or datetime.min.replace(tzinfo=UTC))
+        for e in evs:
+            cur = e.get("currency", e["country"])
+            f_em = flag(e["country"])
+            dot = impact_dot(e["impact"])
+            # Format time as 12h UTC (e.g. "12:30pm")
+            if e["dt_utc"]:
+                t = e["dt_utc"].strftime("%-I:%M%p").lower()
+            else:
+                t = e["time_str"]
+            lines.append(f"{f_em} {t} [{cur}] {dot} {e['title']}")
+            if is_speech(e):
+                lines.append("↳ 🎙 Speeches & Events")
+            else:
+                sub = []
+                if e["forecast"]: sub.append(f"Fcst: {e['forecast']}")
+                if e["previous"]: sub.append(f"Prev: {e['previous']}")
+                if sub:
+                    lines.append("↳ 📊 " + " | ".join(sub))
+
+    lines += [
+        "\n━━━━━━━━━━━━━━━━━━━━",
+        "⚡️ MIM Global Financial Services",
+    ]
+    return "\n".join(lines)
+
+
 def send_weekly_schedule():
-    """Send the Economic Calendar Web App button to the 캘린더 topic."""
+    """Send the weekly schedule + Open Calendar button to the 캘린더 topic."""
+    # 1. Pin button message
     tg_send_webapp_button()
-    print("✅ Weekly calendar Web App button sent.")
+
+    # 2. Weekly schedule content
+    try:
+        msg = build_weekly_schedule()
+    except Exception as e:
+        print(f"❌ Failed to build schedule: {e}")
+        return
+
+    # Split if over Telegram 4096 char limit
+    MAX = 3800
+    chunks = []
+    current = ""
+    for line in msg.split("\n"):
+        if len(current) + len(line) + 1 > MAX:
+            chunks.append(current)
+            current = line
+        else:
+            current += ("\n" if current else "") + line
+    if current:
+        chunks.append(current)
+
+    import time
+    for i, text in enumerate(chunks):
+        payload = {
+            "chat_id": CHAT_ID, "message_thread_id": TOPIC_CALENDAR,
+            "text": text, "parse_mode": "HTML", "disable_web_page_preview": True
+        }
+        req = urllib.request.Request(
+            f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
+            data=json.dumps(payload).encode(),
+            headers={"Content-Type": "application/json"})
+        with urllib.request.urlopen(req, timeout=10) as r:
+            result = json.loads(r.read())
+        if result.get("ok"):
+            print(f"✅ Schedule part {i+1} sent! msg_id={result['result']['message_id']}")
+        else:
+            print(f"❌ Error part {i+1}: {result}")
+        time.sleep(1)
+
+    print("✅ Weekly calendar schedule sent.")
 
 SENT_ACTUALS_FILE = "/tmp/sent_actuals.json"
 
