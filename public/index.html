@@ -1,478 +1,378 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>MIM Live Market Terminal</title>
-    <script src="https://telegram.org/js/telegram-web-app.js"></script>
-    <script src="https://unpkg.com/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js"></script>
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-    <style>
-        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-        :root {
-            --bg:      #0a0c12;
-            --surface: #111420;
-            --card:    #141824;
-            --border:  rgba(255,255,255,0.06);
-            --border2: rgba(255,255,255,0.10);
-            --up:      #22d3b0;
-            --dn:      #f04b5a;
-            --accent:  #22d3b0;
-            --text:    #e4e6f0;
-            --muted:   #58607c;
-            --sub:     #8b91a8;
-        }
-        html, body {
-            background: var(--bg);
-            color: var(--text);
-            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-            overflow-x: hidden;
-            min-height: 100dvh;
-            -webkit-font-smoothing: antialiased;
-        }
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>MIM Live Terminal</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<script src="https://unpkg.com/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,400;0,500;0,600;0,700;0,800;1,400&display=swap" rel="stylesheet">
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+:root{
+  --bg:#07090f;--s1:#0d1018;--s2:#111622;--s3:#161c2c;
+  --border:rgba(255,255,255,0.06);--border2:rgba(255,255,255,0.10);
+  --up:#00c896;--dn:#e8445a;
+  --accent:#00c896;--accent2:#3b82f6;
+  --text:#dde2f0;--sub:#7c86a2;--muted:#414b63;
+  --r:12px;
+}
+html,body{
+  background:var(--bg);color:var(--text);
+  font-family:'Inter',-apple-system,sans-serif;
+  -webkit-font-smoothing:antialiased;
+  overflow-x:hidden;min-height:100dvh;
+}
 
-        /* ─── Header ─────────────────────────────────── */
-        header {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            padding: 14px 16px 12px;
-            border-bottom: 1px solid var(--border);
-            position: sticky; top: 0;
-            background: var(--bg);
-            z-index: 99;
-        }
-        .logo-wrap { display: flex; align-items: center; gap: 10px; }
-        .logo-icon {
-            width: 32px; height: 32px; border-radius: 9px;
-            background: linear-gradient(135deg, #22d3b0 0%, #0055ff 100%);
-            display: flex; align-items: center; justify-content: center;
-            font-size: 16px; flex-shrink: 0;
-            box-shadow: 0 0 16px rgba(34,211,176,0.25);
-        }
-        .logo-text h1 { font-size: 15px; font-weight: 700; letter-spacing: -0.3px; }
-        .logo-text p  { font-size: 10px; color: var(--muted); font-weight: 400; letter-spacing: 0.3px; margin-top: 1px; }
+/* ── HEADER ── */
+header{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:12px 14px 10px;
+  border-bottom:1px solid var(--border);
+  background:var(--bg);
+  position:sticky;top:0;z-index:100;
+}
+.hd-left{display:flex;align-items:center;gap:10px;}
+.hd-icon{
+  width:34px;height:34px;border-radius:10px;flex-shrink:0;
+  background:linear-gradient(135deg,#00c896 0%,#0055ff 100%);
+  display:flex;align-items:center;justify-content:center;font-size:17px;
+  box-shadow:0 0 20px rgba(0,200,150,0.3);
+}
+.hd-title{font-size:15px;font-weight:700;letter-spacing:-.3px;}
+.hd-sub{font-size:10px;color:var(--muted);margin-top:1px;letter-spacing:.2px;}
+.live-pill{
+  display:flex;align-items:center;gap:5px;
+  background:rgba(0,200,150,0.08);
+  border:1px solid rgba(0,200,150,0.22);
+  border-radius:99px;padding:4px 10px;
+  font-size:10px;font-weight:700;color:var(--accent);letter-spacing:.6px;
+}
+.live-dot{
+  width:6px;height:6px;border-radius:50%;background:var(--accent);
+  animation:blink 1.6s ease-in-out infinite;
+}
+@keyframes blink{0%,100%{opacity:1;transform:scale(1);}50%{opacity:.3;transform:scale(.7);}}
 
-        /* LIVE badge */
-        .live-badge {
-            display: flex; align-items: center; gap: 5px;
-            background: rgba(34,211,176,0.10);
-            border: 1px solid rgba(34,211,176,0.20);
-            border-radius: 20px;
-            padding: 4px 10px;
-            font-size: 10px; font-weight: 600;
-            color: var(--accent); letter-spacing: 0.5px;
-        }
-        .live-dot {
-            width: 6px; height: 6px; border-radius: 50%;
-            background: var(--accent);
-            animation: pulse 1.8s ease-in-out infinite;
-        }
-        @keyframes pulse {
-            0%, 100% { opacity: 1; transform: scale(1); }
-            50% { opacity: 0.4; transform: scale(0.8); }
-        }
+/* ── TABS ── */
+#tabs{
+  display:flex;overflow-x:auto;scrollbar-width:none;
+  border-bottom:1px solid var(--border);
+  padding:0 12px;gap:2px;
+}
+#tabs::-webkit-scrollbar{display:none;}
+#tabs button{
+  flex-shrink:0;background:none;border:none;cursor:pointer;
+  padding:10px 14px 11px;font-size:13px;font-weight:500;
+  color:var(--sub);border-bottom:2px solid transparent;
+  font-family:inherit;letter-spacing:.1px;
+  transition:color .18s,border-color .18s;
+}
+#tabs button.active{color:var(--accent);border-bottom-color:var(--accent);font-weight:600;}
 
-        /* ─── Category Tabs ──────────────────────────── */
-        #tabs {
-            display: flex;
-            overflow-x: auto;
-            padding: 6px 12px 0;
-            gap: 2px;
-            scrollbar-width: none;
-            border-bottom: 1px solid var(--border);
-        }
-        #tabs::-webkit-scrollbar { display: none; }
-        #tabs button {
-            flex-shrink: 0;
-            background: none; border: none;
-            padding: 9px 14px 10px;
-            font-size: 13px; font-weight: 500;
-            color: var(--muted);
-            border-bottom: 2px solid transparent;
-            cursor: pointer;
-            transition: color 0.18s, border-color 0.18s;
-            font-family: inherit;
-            letter-spacing: 0.1px;
-        }
-        #tabs button.active {
-            color: var(--accent);
-            border-bottom-color: var(--accent);
-            font-weight: 600;
-        }
+/* ── SYMBOL GRID ── */
+.grid-label{
+  padding:10px 14px 5px;
+  font-size:9.5px;font-weight:700;letter-spacing:.9px;
+  color:var(--muted);text-transform:uppercase;
+}
+#symbols{
+  display:grid;grid-template-columns:repeat(3,1fr);
+  gap:6px;padding:4px 12px 10px;
+}
+#symbols.wide{grid-template-columns:repeat(4,1fr);gap:5px;padding:4px 10px 10px;}
+#symbols button{
+  padding:9px 4px;
+  background:var(--s2);
+  border:1px solid var(--border);
+  border-radius:var(--r);
+  color:var(--sub);
+  font-size:11.5px;font-weight:600;
+  font-family:inherit;cursor:pointer;
+  transition:all .15s;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+}
+#symbols.wide button{font-size:10.5px;padding:8px 3px;}
+#symbols button:active{transform:scale(.95);}
+#symbols button.active{
+  background:rgba(0,200,150,0.10);
+  color:var(--accent);
+  border-color:rgba(0,200,150,0.35);
+  font-weight:700;
+}
 
-        /* ─── Section label ─────────────────────────── */
-        .section-hint {
-            padding: 10px 16px 4px;
-            font-size: 10px;
-            color: var(--muted);
-            font-weight: 500;
-            letter-spacing: 0.8px;
-            text-transform: uppercase;
-        }
+/* ── PRICE CARD ── */
+#price-card{
+  margin:4px 12px 8px;
+  padding:0;
+  background:var(--s1);
+  border:1px solid var(--border2);
+  border-radius:16px;
+  overflow:hidden;
+  display:none;
+}
+.pc-top{
+  display:flex;justify-content:space-between;align-items:flex-start;
+  padding:16px 16px 12px;
+  border-bottom:1px solid var(--border);
+}
+.pc-left{}
+.pc-sym{font-size:13px;font-weight:600;color:var(--sub);letter-spacing:.2px;margin-bottom:4px;}
+.pc-price{font-size:28px;font-weight:800;letter-spacing:-1px;color:var(--text);line-height:1;}
+.pc-right{text-align:right;}
+.pc-chg{
+  display:inline-flex;align-items:center;gap:4px;
+  font-size:13px;font-weight:700;
+  padding:5px 10px;border-radius:8px;margin-top:4px;
+}
+.pc-chg.up{background:rgba(0,200,150,.12);color:var(--up);}
+.pc-chg.dn{background:rgba(232,68,90,.12);color:var(--dn);}
+.pc-hl{
+  display:flex;justify-content:space-around;
+  padding:10px 16px;
+}
+.hl-block{text-align:center;}
+.hl-label{font-size:9.5px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;}
+.hl-val{font-size:13px;font-weight:600;color:var(--sub);margin-top:3px;}
 
-        /* ─── Symbols Grid ──────────────────────────── */
-        #symbols {
-            display: grid;
-            grid-template-columns: repeat(3, 1fr);
-            gap: 7px;
-            padding: 8px 14px 10px;
-        }
-        #symbols button {
-            padding: 10px 6px;
-            background: var(--card);
-            border: 1px solid var(--border);
-            border-radius: 10px;
-            color: var(--sub);
-            font-size: 11.5px; font-weight: 600;
-            cursor: pointer;
-            transition: all 0.15s;
-            font-family: inherit;
-            letter-spacing: 0.1px;
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-        }
-        #symbols button:active { transform: scale(0.96); }
-        #symbols button.active {
-            background: rgba(34,211,176,0.12);
-            color: var(--accent);
-            border-color: rgba(34,211,176,0.35);
-            font-weight: 700;
-        }
+/* ── CHART CARD ── */
+#chart-card{
+  margin:0 12px 24px;
+  background:var(--s1);
+  border:1px solid var(--border);
+  border-radius:16px;
+  overflow:hidden;
+  display:none;
+}
+.cc-header{
+  display:flex;justify-content:space-between;align-items:center;
+  padding:10px 14px 4px;
+}
+.cc-title{font-size:11px;font-weight:600;color:var(--sub);letter-spacing:.2px;}
+.cc-badges{display:flex;gap:5px;}
+.cc-badge{
+  font-size:9.5px;font-weight:700;letter-spacing:.4px;
+  background:rgba(255,255,255,0.04);
+  border:1px solid var(--border);
+  border-radius:6px;padding:2px 8px;
+  color:var(--muted);
+}
+.cc-badge.today{background:rgba(0,200,150,0.08);border-color:rgba(0,200,150,0.2);color:var(--accent);}
+#chart-container{width:100%;height:240px;margin-top:4px;}
+.cc-footer{
+  text-align:center;font-size:9px;color:var(--muted);
+  padding:5px 0 8px;letter-spacing:.3px;
+}
 
-        /* wide buttons for Forex (many symbols) */
-        #symbols.wide { grid-template-columns: repeat(4, 1fr); gap: 5px; padding: 8px 10px 10px; }
-        #symbols.wide button { font-size: 10.5px; padding: 8px 4px; }
-
-        /* ─── Price Card ─────────────────────────────── */
-        #price-card {
-            margin: 2px 14px 10px;
-            padding: 18px 16px 14px;
-            background: var(--card);
-            border: 1px solid var(--border2);
-            border-radius: 16px;
-            display: none;
-        }
-        .price-top {
-            display: flex;
-            justify-content: space-between;
-            align-items: flex-start;
-            margin-bottom: 2px;
-        }
-        .price-sym {
-            font-size: 17px; font-weight: 700;
-            letter-spacing: -0.4px;
-            color: var(--text);
-        }
-        .price-right { text-align: right; }
-        .price-val {
-            font-size: 26px; font-weight: 700;
-            letter-spacing: -0.8px;
-            line-height: 1;
-            color: var(--text);
-        }
-        .price-chg {
-            font-size: 12.5px; font-weight: 600;
-            margin-top: 4px;
-            display: flex; align-items: center; justify-content: flex-end; gap: 3px;
-        }
-        .price-chg.up { color: var(--up); }
-        .price-chg.dn { color: var(--dn); }
-        .divider { height: 1px; background: var(--border); margin: 12px 0 10px; }
-        .hl-row {
-            display: flex;
-            justify-content: space-between;
-        }
-        .hl-item { font-size: 11px; color: var(--muted); }
-        .hl-item span { color: var(--sub); font-weight: 600; margin-left: 4px; }
-
-        /* ─── Chart Card ─────────────────────────────── */
-        #chart-card {
-            margin: 0 14px 22px;
-            background: var(--card);
-            border: 1px solid var(--border);
-            border-radius: 16px;
-            overflow: hidden;
-            display: none;
-        }
-        .chart-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            padding: 10px 14px 0;
-        }
-        .chart-title { font-size: 11px; font-weight: 600; color: var(--sub); letter-spacing: 0.3px; }
-        .chart-badge {
-            font-size: 10px; font-weight: 600;
-            color: var(--muted);
-            background: rgba(255,255,255,0.04);
-            border: 1px solid var(--border);
-            border-radius: 6px;
-            padding: 2px 7px;
-            letter-spacing: 0.3px;
-        }
-        #chart-container { width: 100%; height: 260px; margin-top: 6px; }
-        .chart-footer {
-            text-align: center;
-            font-size: 9.5px;
-            color: var(--muted);
-            padding: 6px 0 8px;
-            letter-spacing: 0.3px;
-        }
-
-        /* ─── State views ───────────────────────────── */
-        #loading {
-            display: none;
-            flex-direction: column;
-            align-items: center;
-            padding: 44px 20px;
-            color: var(--muted);
-            font-size: 12px;
-            gap: 12px;
-        }
-        .spinner {
-            width: 24px; height: 24px;
-            border: 2.5px solid rgba(255,255,255,0.08);
-            border-left-color: var(--accent);
-            border-radius: 50%;
-            animation: spin 0.75s linear infinite;
-        }
-        @keyframes spin { to { transform: rotate(360deg); } }
-        #error-msg {
-            display: none;
-            text-align: center;
-            padding: 24px 20px;
-            color: var(--dn);
-            font-size: 12.5px;
-            line-height: 1.5;
-        }
-    </style>
+/* ── LOADING / ERROR ── */
+#loading{
+  display:none;flex-direction:column;align-items:center;
+  padding:40px 20px;color:var(--muted);font-size:12px;gap:12px;
+}
+.spinner{
+  width:22px;height:22px;
+  border:2px solid rgba(255,255,255,0.07);
+  border-left-color:var(--accent);
+  border-radius:50%;animation:spin .7s linear infinite;
+}
+@keyframes spin{to{transform:rotate(360deg);}}
+#error-msg{
+  display:none;text-align:center;padding:20px;
+  color:var(--dn);font-size:12.5px;line-height:1.6;
+}
+</style>
 </head>
 <body>
 
 <header>
-    <div class="logo-wrap">
-        <div class="logo-icon">📈</div>
-        <div class="logo-text">
-            <h1>MIM Live Terminal</h1>
-            <p>MIM Global Financial Services</p>
-        </div>
+  <div class="hd-left">
+    <div class="hd-icon">📈</div>
+    <div>
+      <div class="hd-title">MIM Live Terminal</div>
+      <div class="hd-sub">MIM Global Financial Services</div>
     </div>
-    <div class="live-badge"><div class="live-dot"></div>LIVE</div>
+  </div>
+  <div class="live-pill"><div class="live-dot"></div>LIVE</div>
 </header>
 
 <div id="tabs"></div>
-<div class="section-hint" id="section-hint">SELECT INSTRUMENT</div>
+<div class="grid-label">Select Instrument</div>
 <div id="symbols"></div>
 
 <div id="loading"><div class="spinner"></div>Loading market data...</div>
 <div id="error-msg"></div>
 
 <div id="price-card">
-    <div class="price-top">
-        <div class="price-sym" id="d-sym">--</div>
-        <div class="price-right">
-            <div class="price-val" id="d-price">--</div>
-            <div class="price-chg" id="d-chg">--</div>
-        </div>
+  <div class="pc-top">
+    <div class="pc-left">
+      <div class="pc-sym" id="d-sym">--</div>
+      <div class="pc-price" id="d-price">--</div>
     </div>
-    <div class="divider"></div>
-    <div class="hl-row">
-        <div class="hl-item">High<span id="d-high">--</span></div>
-        <div class="hl-item">Low<span id="d-low">--</span></div>
+    <div class="pc-right">
+      <div class="pc-chg" id="d-chg">--</div>
     </div>
+  </div>
+  <div class="pc-hl">
+    <div class="hl-block">
+      <div class="hl-label">High</div>
+      <div class="hl-val" id="d-high">--</div>
+    </div>
+    <div style="width:1px;background:var(--border);"></div>
+    <div class="hl-block">
+      <div class="hl-label">Low</div>
+      <div class="hl-val" id="d-low">--</div>
+    </div>
+  </div>
 </div>
 
 <div id="chart-card">
-    <div class="chart-header">
-        <div class="chart-title" id="chart-title">--</div>
-        <div class="chart-badge">30 MIN</div>
+  <div class="cc-header">
+    <div class="cc-title" id="chart-title">-- · Today</div>
+    <div class="cc-badges">
+      <div class="cc-badge today">TODAY</div>
+      <div class="cc-badge">30 MIN</div>
     </div>
-    <div id="chart-container"></div>
-    <div class="chart-footer">5D · 30min Candlestick · MIM Global Financial Services</div>
+  </div>
+  <div id="chart-container"></div>
+  <div class="cc-footer">Intraday 30min Candlestick · MIM Global Financial Services</div>
 </div>
 
 <script>
-// ── Telegram WebApp ───────────────────────────────────────────────────────
 const tg = window.Telegram && window.Telegram.WebApp;
 if (tg) { tg.expand(); tg.ready(); }
 
-// ── Categories & Symbols ──────────────────────────────────────────────────
 const CATS = {
-    indices:     { label: 'Indices',     syms: ['EURO 50','US 30','HK 50','JP 225','UK 100','US 100','US 500'] },
-    stocks:      { label: 'Stocks',      syms: ['AAPL','AMZN','GOOG','MSFT','NFLX','TSLA','AMD','NVDA','META'] },
-    crypto:      { label: 'Crypto',      syms: ['BTC/USD','ETH/USD','XRP/USD','DOGE/USD','SOL/USD'] },
-    forex:       { label: 'Forex',       syms: ['EUR/USD','GBP/USD','USD/JPY','AUD/USD','USD/CAD','USD/CHF','EUR/JPY','GBP/JPY','EUR/GBP','NZD/USD','USD/CNH','EUR/AUD','GBP/AUD','AUD/JPY','CHF/JPY','CAD/JPY','EUR/CHF','GBP/CAD','GBP/NZD','AUD/CAD','AUD/CHF','AUD/NZD','NZD/JPY','USD/HKD','USD/SGD','USD/THB'] },
-    commodities: { label: 'Commodities', syms: ['Gold','Silver','WTI Crude','Brent Crude','Natural Gas'] },
+  indices:     { label:'Indices',     syms:['EURO 50','US 30','HK 50','JP 225','UK 100','US 100','US 500'] },
+  stocks:      { label:'Stocks',      syms:['AAPL','AMZN','GOOG','MSFT','NFLX','TSLA','AMD','NVDA','META'] },
+  crypto:      { label:'Crypto',      syms:['BTC/USD','ETH/USD','XRP/USD','DOGE/USD','SOL/USD'] },
+  forex:       { label:'Forex',       syms:['EUR/USD','GBP/USD','USD/JPY','AUD/USD','USD/CAD','USD/CHF','EUR/JPY','GBP/JPY','EUR/GBP','NZD/USD','USD/CNH','EUR/AUD','GBP/AUD','AUD/JPY','CHF/JPY','CAD/JPY','EUR/CHF','GBP/CAD','GBP/NZD','AUD/CAD','AUD/CHF','AUD/NZD','NZD/JPY','USD/HKD','USD/SGD','USD/THB'] },
+  commodities: { label:'Commodities', syms:['Gold','Silver','WTI Crude','Brent Crude','Natural Gas'] },
 };
 
-let curCat = 'indices';
-let curSym = 'US 100';
-let chartObj = null;
-let cSeries  = null;
+let curCat='indices', curSym='US 100', chartObj=null, cSeries=null;
 
-// ── Chart init ────────────────────────────────────────────────────────────
 function initChart() {
-    if (chartObj) return;
-    const el = document.getElementById('chart-container');
-    chartObj = LightweightCharts.createChart(el, {
-        width:  el.clientWidth,
-        height: 260,
-        layout: {
-            background: { type: 'solid', color: 'transparent' },
-            textColor: '#58607c',
-            fontSize: 11,
-        },
-        grid: {
-            vertLines: { color: 'rgba(255,255,255,0.03)' },
-            horzLines: { color: 'rgba(255,255,255,0.04)' },
-        },
-        timeScale: {
-            borderColor: 'rgba(255,255,255,0.06)',
-            timeVisible: true,
-            secondsVisible: false,
-            ticksVisible: false,
-        },
-        rightPriceScale: {
-            borderColor: 'rgba(255,255,255,0.06)',
-            scaleMargins: { top: 0.12, bottom: 0.12 },
-            autoScale: true,
-            // Show fewer price labels for cleaner look
-            mode: 0,
-        },
-        crosshair: {
-            vertLine: { color: 'rgba(255,255,255,0.15)', labelBackgroundColor: '#1a1d26' },
-            horzLine: { color: 'rgba(255,255,255,0.15)', labelBackgroundColor: '#1a1d26' },
-        },
-        handleScroll: true,
-        handleScale:  true,
-    });
-
-    cSeries = chartObj.addCandlestickSeries({
-        upColor:     '#22d3b0',
-        downColor:   '#f04b5a',
-        borderVisible: false,
-        wickUpColor:   '#22d3b0',
-        wickDownColor: '#f04b5a',
-    });
-
-    // Reduce Y-axis density
-    chartObj.priceScale('right').applyOptions({
-        autoScale: true,
-    });
-
-    window.addEventListener('resize', () => {
-        chartObj.applyOptions({ width: el.clientWidth });
-    });
+  if (chartObj) return;
+  const el = document.getElementById('chart-container');
+  chartObj = LightweightCharts.createChart(el, {
+    width: el.clientWidth,
+    height: 240,
+    layout: {
+      background: { type:'solid', color:'transparent' },
+      textColor:'#414b63',
+      fontSize: 10,
+    },
+    grid: {
+      vertLines: { color:'rgba(255,255,255,0.025)' },
+      horzLines: { color:'rgba(255,255,255,0.035)' },
+    },
+    timeScale: {
+      borderColor:'rgba(255,255,255,0.06)',
+      timeVisible:true,
+      secondsVisible:false,
+      fixLeftEdge:true,
+      fixRightEdge:true,
+    },
+    rightPriceScale: {
+      borderColor:'rgba(255,255,255,0.06)',
+      // fewer labels = more readable
+      scaleMargins:{ top:0.15, bottom:0.15 },
+      minimumWidth:60,
+    },
+    crosshair: {
+      vertLine:{ color:'rgba(255,255,255,0.12)', labelBackgroundColor:'#161c2c' },
+      horzLine:{ color:'rgba(255,255,255,0.12)', labelBackgroundColor:'#161c2c' },
+    },
+    handleScroll:true,
+    handleScale:true,
+  });
+  cSeries = chartObj.addCandlestickSeries({
+    upColor:'#00c896', downColor:'#e8445a',
+    borderVisible:false,
+    wickUpColor:'#00c896', wickDownColor:'#e8445a',
+  });
+  window.addEventListener('resize', () => chartObj.applyOptions({ width: el.clientWidth }));
 }
 
-// ── Format price ──────────────────────────────────────────────────────────
 function fmt(sym, v) {
-    if (v == null || isNaN(v)) return '--';
-    let d = 2;
-    if (v < 0.01)  d = 6;
-    else if (v < 1)  d = 5;
-    else if (v < 10) d = 4;
-    if (sym.includes('JPY') || sym === 'Silver') d = 3;
-    return Number(v).toLocaleString('en-US', { minimumFractionDigits: d, maximumFractionDigits: d });
+  if (v == null || isNaN(v)) return '--';
+  let d = 2;
+  if (v < 0.01) d = 6;
+  else if (v < 1) d = 5;
+  else if (v < 10) d = 4;
+  if (sym && (sym.includes('JPY') || sym==='Silver')) d = 3;
+  return Number(v).toLocaleString('en-US',{minimumFractionDigits:d,maximumFractionDigits:d});
 }
 
-// ── Fetch quote & chart ───────────────────────────────────────────────────
 async function loadQuote(cat, sym) {
-    const $loading  = document.getElementById('loading');
-    const $error    = document.getElementById('error-msg');
-    const $priceCard = document.getElementById('price-card');
-    const $chartCard = document.getElementById('chart-card');
+  const $load = document.getElementById('loading');
+  const $err  = document.getElementById('error-msg');
+  const $pc   = document.getElementById('price-card');
+  const $cc   = document.getElementById('chart-card');
 
-    $loading.style.display = 'flex';
-    $error.style.display   = 'none';
-    $priceCard.style.display = 'none';
-    $chartCard.style.display = 'none';
+  $load.style.display='flex';
+  $err.style.display='none';
+  $pc.style.display='none';
+  $cc.style.display='none';
 
-    try {
-        const url = `/api/quote?cat=${encodeURIComponent(cat)}&sym=${encodeURIComponent(sym)}`;
-        const res = await fetch(url);
-        const d   = await res.json();
-        if (d.error) throw new Error(d.error);
+  try {
+    const res = await fetch(`/api/quote?cat=${encodeURIComponent(cat)}&sym=${encodeURIComponent(sym)}`);
+    const d   = await res.json();
+    if (d.error) throw new Error(d.error);
 
-        // Price card
-        document.getElementById('d-sym').textContent   = sym;
-        document.getElementById('d-price').textContent = fmt(sym, d.price);
-        const pct = Number(d.change_pct || 0);
-        const chgEl = document.getElementById('d-chg');
-        chgEl.innerHTML = (pct >= 0 ? '▲' : '▼') + ' ' + Math.abs(pct).toFixed(2) + '%';
-        chgEl.className = 'price-chg ' + (pct >= 0 ? 'up' : 'dn');
-        document.getElementById('d-high').textContent = fmt(sym, d.high);
-        document.getElementById('d-low').textContent  = fmt(sym, d.low);
-        $priceCard.style.display = 'block';
+    document.getElementById('d-sym').textContent   = sym;
+    document.getElementById('d-price').textContent = fmt(sym, d.price);
+    const pct = Number(d.change_pct || 0);
+    const chgEl = document.getElementById('d-chg');
+    chgEl.innerHTML = (pct >= 0 ? '▲ +' : '▼ ') + Math.abs(pct).toFixed(2) + '%';
+    chgEl.className = 'pc-chg ' + (pct >= 0 ? 'up' : 'dn');
+    document.getElementById('d-high').textContent = fmt(sym, d.high);
+    document.getElementById('d-low').textContent  = fmt(sym, d.low);
+    $pc.style.display='block';
 
-        // Chart
-        if (d.ohlc && d.ohlc.length > 1) {
-            initChart();
-
-            // Use only last 5 days of data for "recent" feel
-            const recent = d.ohlc.slice(-240); // ~5 days at 30min = 240 bars
-            cSeries.setData(recent);
-            chartObj.timeScale().fitContent();
-
-            // Update chart title
-            document.getElementById('chart-title').textContent = sym + ' · 5D';
-            $chartCard.style.display = 'block';
-        }
-
-        if (tg && tg.HapticFeedback) tg.HapticFeedback.impactOccurred('light');
-
-    } catch (err) {
-        $error.textContent = '⚠️ Unable to load data for ' + sym + '. Please try again.';
-        $error.style.display = 'block';
-    } finally {
-        $loading.style.display = 'none';
+    if (d.ohlc && d.ohlc.length > 1) {
+      initChart();
+      cSeries.setData(d.ohlc);
+      chartObj.timeScale().fitContent();
+      document.getElementById('chart-title').textContent = sym + ' · Today';
+      $cc.style.display='block';
     }
+
+    if (tg && tg.HapticFeedback) tg.HapticFeedback.impactOccurred('light');
+  } catch(e) {
+    $err.textContent = '⚠ Unable to load data for ' + sym + '. Please try again.';
+    $err.style.display='block';
+  } finally {
+    $load.style.display='none';
+  }
 }
 
-// ── Render tabs ───────────────────────────────────────────────────────────
 function renderTabs() {
-    const el = document.getElementById('tabs');
-    el.innerHTML = '';
-    Object.keys(CATS).forEach(key => {
-        const btn = document.createElement('button');
-        btn.textContent = CATS[key].label;
-        if (key === curCat) btn.className = 'active';
-        btn.onclick = () => {
-            curCat = key;
-            curSym = CATS[key].syms[0];
-            renderTabs();
-            renderSymbols();
-            loadQuote(curCat, curSym);
-        };
-        el.appendChild(btn);
-    });
+  const el = document.getElementById('tabs');
+  el.innerHTML='';
+  Object.keys(CATS).forEach(key => {
+    const btn=document.createElement('button');
+    btn.textContent=CATS[key].label;
+    if (key===curCat) btn.className='active';
+    btn.onclick=()=>{ curCat=key; curSym=CATS[key].syms[0]; renderTabs(); renderSymbols(); loadQuote(curCat,curSym); };
+    el.appendChild(btn);
+  });
 }
 
-// ── Render symbol buttons ─────────────────────────────────────────────────
 function renderSymbols() {
-    const el = document.getElementById('symbols');
-    el.innerHTML = '';
-
-    // Use 4 cols for forex (many symbols), 3 cols for others
-    el.className = curCat === 'forex' ? 'wide' : '';
-
-    CATS[curCat].syms.forEach(sym => {
-        const btn = document.createElement('button');
-        btn.textContent = sym;
-        if (sym === curSym) btn.className = 'active';
-        btn.onclick = () => {
-            curSym = sym;
-            renderSymbols();
-            loadQuote(curCat, curSym);
-        };
-        el.appendChild(btn);
-    });
+  const el=document.getElementById('symbols');
+  el.innerHTML='';
+  el.className=curCat==='forex'?'wide':'';
+  CATS[curCat].syms.forEach(sym => {
+    const btn=document.createElement('button');
+    btn.textContent=sym;
+    if (sym===curSym) btn.className='active';
+    btn.onclick=()=>{ curSym=sym; renderSymbols(); loadQuote(curCat,curSym); };
+    el.appendChild(btn);
+  });
 }
 
-// ── Init ──────────────────────────────────────────────────────────────────
 renderTabs();
 renderSymbols();
 loadQuote(curCat, curSym);

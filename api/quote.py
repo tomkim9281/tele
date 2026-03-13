@@ -55,8 +55,9 @@ CATEGORIES = {
 
 
 def fetch_yf(ticker):
+    # 30-minute intraday bars for today
     url = (f"https://query1.finance.yahoo.com/v8/finance/chart/"
-           f"{urllib.parse.quote(ticker)}?interval=1d&range=30d")
+           f"{urllib.parse.quote(ticker)}?interval=30m&range=1d")
     req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
     with urllib.request.urlopen(req, timeout=10) as r:
         return json.loads(r.read())
@@ -76,21 +77,19 @@ def get_data(ticker):
     timestamps = result.get("timestamp") or result.get("timestamps", [])
     q = result["indicators"]["quote"][0]
 
-    seen = set()
-    ohlc  = []
+    ohlc = []
     for i, ts in enumerate(timestamps):
         try:
             o = q["open"][i];  h = q["high"][i]
             l = q["low"][i];   c = q["close"][i]
             if None in (o, h, l, c):
                 continue
-            dt = datetime.fromtimestamp(ts, tz=timezone.utc).strftime("%Y-%m-%d")
-            if dt in seen:
-                continue
-            seen.add(dt)
-            ohlc.append({"time": dt,
-                         "open":  round(o, 6), "high": round(h, 6),
-                         "low":   round(l, 6), "close": round(c, 6)})
+            # lightweight-charts intraday: use Unix timestamp (seconds)
+            ohlc.append({
+                "time":  int(ts),
+                "open":  round(o, 6), "high": round(h, 6),
+                "low":   round(l, 6), "close": round(c, 6)
+            })
         except Exception:
             pass
 
