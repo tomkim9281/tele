@@ -114,6 +114,8 @@ def fetch_website_strategies():
             import subprocess
             import sys
             subprocess.check_call([sys.executable, "-m", "pip", "install", "beautifulsoup4"])
+            import importlib
+            importlib.invalidate_caches()
             from bs4 import BeautifulSoup
             
         url = "https://www.myinvestmentmarkets.com/support/education-feed/en"
@@ -183,6 +185,8 @@ def build_chart_and_indicators(strategy):
         import subprocess
         import sys
         subprocess.check_call([sys.executable, "-m", "pip", "install", "ta", "mplfinance", "matplotlib", "yfinance", "pandas"])
+        import importlib
+        importlib.invalidate_caches()
         import pandas as pd
         import ta
         import mplfinance as mpf
@@ -470,8 +474,19 @@ def send_error_to_telegram(error_text):
     )
     try:
         urllib.request.urlopen(req, timeout=10)
-    except:
-        pass
+    except Exception as e:
+        print(f"Failed to send to thread. Retrying to main chat... {e}")
+        # Fallback to main chat (no message_thread_id)
+        payload.pop("message_thread_id", None)
+        req = urllib.request.Request(
+            f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
+            data=json.dumps(payload).encode(),
+            headers={"Content-Type": "application/json"}
+        )
+        try:
+            urllib.request.urlopen(req, timeout=10)
+        except:
+            pass
 
 if __name__ == "__main__":
     try:
