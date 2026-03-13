@@ -431,5 +431,32 @@ def run():
     tg_send_photo(chart_bytes, caption)
     print(f"✅ Education post sent: {strategy['name']}")
 
+def send_error_to_telegram(error_text):
+    import urllib.parse
+    text = f"🚨 <b>BOT CRASH REPORT</b>\n<pre>{error_text}</pre>"
+    payload = {
+        "chat_id": CHAT_ID, 
+        "message_thread_id": TOPIC_EDUCATION,
+        "text": text, 
+        "parse_mode": "HTML"
+    }
+    req = urllib.request.Request(
+        f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
+        data=json.dumps(payload).encode(),
+        headers={"Content-Type": "application/json"}
+    )
+    try:
+        urllib.request.urlopen(req, timeout=10)
+    except:
+        pass
+
 if __name__ == "__main__":
-    run()
+    try:
+        run()
+    except Exception as e:
+        import traceback
+        err = traceback.format_exc()
+        print("CRASHED!")
+        print(err)
+        send_error_to_telegram(err)
+        sys.exit(1)
