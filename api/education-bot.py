@@ -24,53 +24,81 @@ KST = timezone(timedelta(hours=9))
 # ── Strategy rotation ──────────────────────────────────────────────────────
 STRATEGIES = [
     {
-        "name": "RSI Divergence",
+        "name": "RSI & Momentum",
         "symbol": "^NDX",
         "display": "Nasdaq 100 (US100)",
         "indicators": ["RSI", "EMA20", "EMA50"],
-        "description": "Using RSI divergence to spot potential reversals on US100"
+        "description": "Understanding momentum shifts using the Relative Strength Index (RSI)"
     },
     {
-        "name": "MACD Crossover",
+        "name": "MACD Trend Following",
         "symbol": "^GSPC",
         "display": "S&P 500 (US500)",
         "indicators": ["MACD", "EMA50"],
-        "description": "Identifying trend changes using MACD crossover signals"
+        "description": "Identifying trend direction and strength using MACD histograms and crossovers"
     },
     {
-        "name": "Bollinger Band Squeeze",
+        "name": "Bollinger Bands Volatility",
         "symbol": "GC=F",
         "display": "Gold (XAUUSD)",
         "indicators": ["BB", "Volume"],
-        "description": "Trading volatility breakouts using Bollinger Band Squeeze"
+        "description": "Analyzing market volatility and potential mean-reverting conditions"
     },
     {
-        "name": "Multi-Timeframe EMA",
+        "name": "Moving Average Alignment",
         "symbol": "CL=F",
         "display": "WTI Crude Oil",
         "indicators": ["EMA20", "EMA50", "EMA200"],
-        "description": "Using EMA 20/50/200 alignment for trend confirmation"
+        "description": "Using multiple EMAs to assess long-term and short-term trend confirmation"
     },
     {
-        "name": "Stochastic Strategy",
+        "name": "Stochastic Oscillators",
         "symbol": "EURUSD=X",
         "display": "EUR/USD",
         "indicators": ["Stochastic", "RSI"],
-        "description": "Identifying overbought/oversold zones using Stochastics"
+        "description": "Identifying overbought/oversold extreme zones in ranging markets"
     },
     {
-        "name": "Support & Resistance Breakout",
+        "name": "Price Action & Volume",
         "symbol": "^DJI",
         "display": "Dow Jones (US30)",
         "indicators": ["ATR", "Volume", "EMA20"],
-        "description": "Trading confirmed breakouts above key resistance levels"
+        "description": "Analyzing current price action context against trading volume and volatility"
     },
+    {
+        "name": "Dual Momentum",
+        "symbol": "BTC-USD",
+        "display": "Bitcoin (BTC/USD)",
+        "indicators": ["RSI", "MACD"],
+        "description": "Combining RSI and MACD to build confluence in momentum analysis"
+    },
+    {
+        "name": "Trend Reversal Zones",
+        "symbol": "^N225",
+        "display": "Nikkei 225 (JP225)",
+        "indicators": ["BB", "RSI"],
+        "description": "Spotting potential exhaustion using Bollinger Band extremes and RSI conditions"
+    },
+    {
+        "name": "ATR Volatility Sizing",
+        "symbol": "GBPUSD=X",
+        "display": "GBP/USD",
+        "indicators": ["ATR", "EMA50"],
+        "description": "Using Average True Range (ATR) to understand daily volatility boundaries"
+    },
+    {
+        "name": "The 200-Day Baseline",
+        "symbol": "AAPL",
+        "display": "Apple (AAPL)",
+        "indicators": ["EMA50", "EMA200", "Volume"],
+        "description": "Assessing the macro trend environment relative to the critical 200 EMA"
+    }
 ]
 
-def get_week_index():
-    """Returns a rotating index (0-5) based on ISO week number"""
-    week_num = datetime.now(KST).isocalendar()[1]
-    return week_num % len(STRATEGIES)
+def get_daily_index():
+    """Returns a rotating index based on the day of the year."""
+    day_num = datetime.now(KST).timetuple().tm_yday
+    return day_num % len(STRATEGIES)
 
 def fetch_url(url):
     req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
@@ -219,23 +247,22 @@ def build_chart_and_indicators(strategy):
 
 def gemini_education(strategy, indicator_values, recent_close):
     prompt = f"""You are a professional CFD trading educator at MyInvestmentMarkets.
+Write an educational lesson about: {strategy['name']} using {strategy['display']} as a live example.
 
-Strategy being taught: {strategy['name']}
-Instrument: {strategy['display']}
-Current indicator values:
+Current indicator values (LIVE DATA):
 {chr(10).join(f'- {k}: {v}' for k, v in indicator_values.items())}
 Recent closing price: {recent_close:.4f}
 
-Write educational commentary in 3-4 paragraphs:
-1. Briefly explain what {strategy['name']} is and why traders use it
-2. Describe what the current chart/indicator readings suggest about {strategy['display']}
-3. Explain how a trader would use this setup to plan an entry/exit
+Write exactly 3 concise paragraphs:
+1. Explain the core concept of {strategy['name']} and how it generally works.
+2. Objectively state what the LIVE DATA values (above) indicate right now. ONLY state facts based on the numbers provided.
+3. Detail how a trader applies this knowledge to manage risk or plan trades.
 
-Rules:
-- Plain English, explain any jargon used
-- Never give direct buy/sell signals — use "signals suggest", "traders may watch for"
-- End with exactly ONE sentence starting with "💡 Key Takeaway:"
-- Total response max 250 words"""
+CRITICAL RULES:
+- IMPORTANT: DO NOT hallucinate specific chart patterns (e.g. divergence, squeeze, crossover, engulfing candle) unless the numerical values perfectly prove it.
+- Never give direct financial advice or buy/sell signals.
+- End the output with a single bold sentence starting with "💡 Key Takeaway:"
+- Keep it under 250 words total."""
 
     payload = {
         "contents": [{"parts": [{"text": prompt}]}],
@@ -276,7 +303,7 @@ def tg_send_photo(photo_bytes, caption):
         return json.loads(r.read())
 
 def run():
-    strategy = STRATEGIES[get_week_index()]
+    strategy = STRATEGIES[get_daily_index()]
     print(f"📚 Strategy: {strategy['name']} — {strategy['display']}")
 
     # Build chart + compute indicators
