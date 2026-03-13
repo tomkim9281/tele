@@ -208,7 +208,6 @@ def run():
             continue
 
         summary = gemini_one_line(item["title"], item["description"])
-        now_str = datetime.now(KST).strftime("%H:%M KST")
 
         text = (
             f"🔴 <b>BREAKING</b>\n\n"
