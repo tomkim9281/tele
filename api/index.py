@@ -62,17 +62,24 @@ def get_data(ticker):
 
     timestamps = result.get("timestamp") or result.get("timestamps", [])
     q = result["indicators"]["quote"][0]
-    ohlc = []
+    
+    # Store unique timestamps in a dict to deduplicate, keeping the latest value
+    unique_bars = {}
     for i, ts in enumerate(timestamps):
         try:
             o, h, l, c = q["open"][i], q["high"][i], q["low"][i], q["close"][i]
             if None in (o, h, l, c): continue
             
             # Use Unix timestamps (seconds) for lightweight-charts intraday
-            ohlc.append({"time": int(ts), "open": round(o,6), "high": round(h,6),
-                         "low": round(l,6), "close": round(c,6)})
+            unique_bars[int(ts)] = {
+                "time": int(ts), "open": round(o,6), "high": round(h,6),
+                "low": round(l,6), "close": round(c,6)
+            }
         except Exception:
             pass
+
+    # Sort by time ascending
+    ohlc = [unique_bars[t] for t in sorted(unique_bars.keys())]
 
     return {"price": price, "change_pct": pct, "high": high, "low": low, "ohlc": ohlc}
 
@@ -401,11 +408,11 @@ async function loadQuote(cat, sym) {
     $pc.style.display='block';
 
     if (d.ohlc && d.ohlc.length > 1) {
+      $cc.style.display='block';
       initChart();
       cSeries.setData(d.ohlc);
       chartObj.timeScale().fitContent();
       document.getElementById('chart-title').textContent = sym + ' · Today';
-      $cc.style.display='block';
     }
 
     if (tg && tg.HapticFeedback) tg.HapticFeedback.impactOccurred('light');

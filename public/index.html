@@ -332,11 +332,11 @@ async function loadQuote(cat, sym) {
     $pc.style.display='block';
 
     if (d.ohlc && d.ohlc.length > 1) {
+      $cc.style.display='block';
       initChart();
       cSeries.setData(d.ohlc);
       chartObj.timeScale().fitContent();
       document.getElementById('chart-title').textContent = sym + ' · Today';
-      $cc.style.display='block';
     }
 
     if (tg && tg.HapticFeedback) tg.HapticFeedback.impactOccurred('light');
