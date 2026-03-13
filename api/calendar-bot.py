@@ -180,49 +180,102 @@ def send_weekly_schedule():
     tg_send(msg)
     print("✅ Weekly schedule sent.")
 
-# ── EVENT ALERTS (every 5 min) ────────────────────────────────────────────────
+SENT_ACTUALS_FILE = "/tmp/sent_actuals.json"
+
+def load_sent_actuals():
+    try:
+        with open(SENT_ACTUALS_FILE) as f:
+            return set(json.load(f))
+    except Exception:
+        return set()
+
+def save_sent_actuals(ids):
+    try:
+        with open(SENT_ACTUALS_FILE, "w") as f:
+            json.dump(list(ids)[-200:], f)
+    except Exception:
+        pass
+
+# ── 1-HOUR ALERTS ─────────────────────────────────────────────────────────────
 def check_event_alerts():
     now_utc = datetime.now(UTC)
     sent_alerts = load_sent_alerts()
+    sent_actuals = load_sent_actuals()
 
     events_this = parse_ff_xml("thisweek")
     events_next = parse_ff_xml("nextweek")
     all_events = events_this + events_next
 
     high_events = [e for e in all_events if e["impact"] == "High" and e["dt_utc"]]
-    new_count = 0
+    alert_count = 0
+    actual_count = 0
 
     for e in high_events:
-        alert_id = f"{e['date']}_{e['title']}"
-        if alert_id in sent_alerts:
-            continue
-
+        event_id = f"{e['date']}_{e['title']}"
+        dot = impact_dot(e["impact"])
+        f_em = flag(e["country"])
+        cur = e.get("currency", e["country"])
         minutes_until = (e["dt_utc"] - now_utc).total_seconds() / 60
+        minutes_since = -minutes_until  # positive = past
 
-        if 55 <= minutes_until <= 65:
-            dot = impact_dot(e["impact"])
-            f_emoji = flag(e["country"])
-            cur = e.get("currency", e["country"])
+        # ── 1-hour pre-event alert ─────────────────────────────────────────
+        alert_id = f"alert_{event_id}"
+        if alert_id not in sent_alerts and 55 <= minutes_until <= 65:
             msg = (
                 f"⚠️ <b>EVENT ALERT — 1 Hour Notice</b>\n\n"
                 f"📌 <b>{e['title']}</b>\n"
-                f"{f_emoji} {e['country']}  [{cur}]  {dot} HIGH IMPACT\n"
+                f"{f_em} {e['country']}  [{cur}]  {dot} HIGH IMPACT\n"
                 f"⏰ Release: <b>{e['time_utc']} UTC</b>\n"
             )
             if e["forecast"]: msg += f"📊 Forecast: {e['forecast']}\n"
             if e["previous"]: msg += f"Prev: {e['previous']}\n"
             msg += "\n⚡ Expect elevated volatility around release.\nTrade with caution.\n\n⚡️ MIM Global Financial Services"
-
             try:
                 tg_send(msg)
                 sent_alerts.add(alert_id)
-                new_count += 1
-                print(f"✅ Alert sent: {e['title']}")
+                alert_count += 1
+                print(f"✅ 1hr Alert sent: {e['title']}")
             except Exception as ex:
                 print(f"Alert send error: {ex}")
 
+        # ── Actual release result ──────────────────────────────────────────
+        actual_id = f"actual_{event_id}"
+        if (actual_id not in sent_actuals
+                and e["actual"]           # actual value exists
+                and 0 <= minutes_since <= 30):  # released within last 30 min
+            # Compare actual vs forecast to determine beat/miss
+            beat = ""
+            try:
+                a = float(e["actual"].replace("%","").replace("K","000").replace("M","000000"))
+                f_val = float(e["forecast"].replace("%","").replace("K","000").replace("M","000000"))
+                if a > f_val:   beat = "  🟢 <b>Beat</b>"
+                elif a < f_val: beat = "  🔴 <b>Miss</b>"
+                else:           beat = "  🟡 In Line"
+            except Exception:
+                pass
+
+            msg = (
+                f"📊 <b>DATA RELEASE</b>{beat}\n\n"
+                f"{f_em} <b>{e['title']}</b>\n"
+                f"{e['country']}  [{cur}]  {dot} HIGH IMPACT\n"
+                f"⏰ Released: <b>{e['time_utc']} UTC</b>\n\n"
+                f"┌ Actual:   <b>{e['actual']}</b>\n"
+            )
+            if e["forecast"]: msg += f"├ Forecast: {e['forecast']}\n"
+            if e["previous"]: msg += f"└ Previous: {e['previous']}\n"
+            msg += "\n⚡️ MIM Global Financial Services"
+
+            try:
+                tg_send(msg)
+                sent_actuals.add(actual_id)
+                actual_count += 1
+                print(f"✅ Actual result sent: {e['title']} = {e['actual']}")
+            except Exception as ex:
+                print(f"Actual send error: {ex}")
+
     save_sent_alerts(sent_alerts)
-    print(f"✅ Alert check done. {new_count} alert(s) sent.")
+    save_sent_actuals(sent_actuals)
+    print(f"✅ Check done. {alert_count} alert(s), {actual_count} actual(s) sent.")
 
 if __name__ == "__main__":
     mode = sys.argv[1] if len(sys.argv) > 1 else "alert"
