@@ -14,8 +14,8 @@ from datetime import datetime, timezone, timedelta
 
 BOT_TOKEN  = os.environ.get("TELEGRAM_BOT_TOKEN", "")
 GEMINI_KEY = os.environ.get("GEMINI_API_KEY2", "")   # dedicated briefing key
-CHAT_ID    = -1003754818644
-TOPIC_BRIEFING = 5
+CHAT_ID    = -1003733637841
+TOPIC_BRIEFING = 43  # 브리핑
 UTC = timezone.utc
 
 def tg_send(text):

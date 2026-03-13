@@ -18,8 +18,8 @@ from email.utils import parsedate_to_datetime
 BOT_TOKEN   = os.environ.get("TELEGRAM_BOT_TOKEN", "")
 GEMINI_KEY  = os.environ.get("GEMINI_API_KEY", "")
 CPANIC_KEY  = os.environ.get("CRYPTOPANIC_API_KEY", "")
-CHAT_ID     = -1003754818644
-TOPIC_NEWS  = 3  # "re" thread
+CHAT_ID     = -1003733637841
+TOPIC_NEWS  = 45  # 뉴스
 
 KST = timezone(timedelta(hours=9))
 SENT_IDS_FILE = "/tmp/sent_news_ids.json"

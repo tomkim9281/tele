@@ -13,8 +13,8 @@ import xml.etree.ElementTree as ET
 from datetime import datetime, timezone, timedelta
 
 BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
-CHAT_ID = -1003754818644
-TOPIC_CALENDAR = 6
+CHAT_ID = -1003733637841
+TOPIC_CALENDAR = 66  # 캘린더
 UTC = timezone.utc
 SENT_ALERTS_FILE = "/tmp/sent_alerts.json"
 

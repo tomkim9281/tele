@@ -17,8 +17,8 @@ from datetime import datetime, timezone, timedelta
 
 BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
 GEMINI_KEY = os.environ.get("GEMINI_API_KEY", "")
-CHAT_ID = -1003754818644
-TOPIC_EDUCATION = 7  # tra
+CHAT_ID = -1003733637841
+TOPIC_EDUCATION = 39  # 교육
 KST = timezone(timedelta(hours=9))
 
 # ── Strategy rotation ──────────────────────────────────────────────────────

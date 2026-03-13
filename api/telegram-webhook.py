@@ -13,8 +13,8 @@ from http.server import BaseHTTPRequestHandler
 BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
 BASE_URL = f"https://api.telegram.org/bot{BOT_TOKEN}"
 
-CHAT_ID = -1003754818644
-TOPIC_QUOTES = 4   # mar
+CHAT_ID = -1003733637841
+TOPIC_QUOTES = 47  # 시세
 
 # ── Instrument definitions ──────────────────────────────────────────────────
 CATEGORIES = {
