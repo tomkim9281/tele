@@ -23,27 +23,37 @@ TOPIC_NEWS  = 3  # "re" thread
 
 KST = timezone(timedelta(hours=9))
 SENT_IDS_FILE = "/tmp/sent_news_ids.json"
-MAX_AGE_MINUTES = 60
+# Only send news published in the last 10 minutes per run (5min cron overlap buffer)
+MAX_AGE_MINUTES = 10
 
-# We cast a wide net for high impact items across macro, US equities, and crypto
-HIGH_IMPACT_KEYWORDS = [
-    # Macro / Central Banks
-    "fed", "fomc", "rate hike", "rate cut", "interest rate", "powell", "yellen",
-    "cpi", "inflation", "nfp", "payroll", "jobs", "gdp", "recession",
-    # Geopolitics / Macro Risk
-    "war", "crisis", "sanctions", "oil", "opec", "emergency", "breaking",
-    # Crypto
-    "bitcoin", "crypto", "etf", "sec approval", "binance", "coinbase",
-    # Stocks / Companies
-    "earnings beat", "earnings miss", "surprise", "merger", "acquisition",
-    "apple", "microsoft", "nvidia", "tesla", "amazon", "google"
-]
-
-RSS_SOURCES = [
+# Dedicated market/FX feeds: post ALL articles (no keyword filter)
+MARKET_RSS_SOURCES = [
     ("FXStreet",       "https://www.fxstreet.com/rss"),
     ("ForexLive",      "https://www.forexlive.com/feed/news"),
-    ("CNBC Markets",   "https://search.cnbc.com/rs/search/combinedcms/view.xml?partnerId=wrss01&id=10000664"),
     ("Cointelegraph",  "https://cointelegraph.com/rss")
+]
+
+# General news sites: only post if matches finance keywords
+FILTERED_RSS_SOURCES = [
+    ("CNBC Markets",   "https://search.cnbc.com/rs/search/combinedcms/view.xml?partnerId=wrss01&id=10000664")
+]
+
+HIGH_IMPACT_KEYWORDS = [
+    # Macro / Central Banks
+    "fed", "fomc", "rate", "powell", "cpi", "inflation", "nfp", "payroll",
+    "jobs", "gdp", "recession", "yield", "treasury", "bond",
+    # Markets general
+    "market", "stock", "equit", "index", "indices", "rally", "selloff",
+    "surge", "plunge", "crash", "soar", "drop", "rise", "fall", "gain", "loss",
+    "nasdaq", "s&p", "dow", "russell", "nikkei", "dax", "ftse",
+    # Geopolitics / Macro Risk
+    "war", "crisis", "sanctions", "oil", "opec", "tariff", "trade",
+    # Crypto
+    "bitcoin", "crypto", "btc", "eth", "binance", "coinbase",
+    # Commodities / FX
+    "dollar", "euro", "yen", "gold", "silver", "crude",
+    # Companies
+    "apple", "microsoft", "nvidia", "tesla", "amazon", "google", "meta"
 ]
 
 def load_sent_ids():
@@ -108,12 +118,9 @@ def tg_send(text):
     with urllib.request.urlopen(req, timeout=10) as r:
         return json.loads(r.read())
 
-def fetch_all():
+def fetch_rss(sources, now_utc, keyword_filter=False):
     items = []
-    now_utc = datetime.now(timezone.utc)
-
-    # 1. RSS Feeds
-    for source_name, url in RSS_SOURCES:
+    for source_name, url in sources:
         try:
             raw = fetch_url(url)
             root = ET.fromstring(raw)
@@ -122,35 +129,36 @@ def fetch_all():
                 link  = item.findtext("link", "").strip()
                 desc  = item.findtext("description", "").strip()
                 pub_d = item.findtext("pubDate", "").strip()
-                
-                # Filter strictly by freshness
-                if pub_d:
+
+                if not pub_d:
+                    continue
+
+                dt = None
+                try:
+                    dt = parsedate_to_datetime(pub_d)
+                except Exception:
                     try:
-                        # 1. Try standard email/RFC2822 format (e.g. Thu, 12 Mar 2026 09:41:03 GMT)
-                        dt = parsedate_to_datetime(pub_d)
+                        dt = datetime.fromisoformat(pub_d.replace("Z", "+00:00"))
                     except Exception:
                         try:
-                            # 2. Try ISO 8601 fallback
-                            dt = datetime.fromisoformat(pub_d.replace("Z", "+00:00"))
+                            from dateutil.parser import parse as dp
+                            dt = dp(pub_d)
                         except Exception:
-                            try:
-                                # 3. Try dateutil if installed
-                                from dateutil.parser import parse as dp
-                                dt = dp(pub_d)
-                            except Exception:
-                                print(f"Could not parse date: {pub_d} from {source_name}")
-                                dt = None
+                            pass
 
-                    if dt:
-                        if dt.tzinfo is None:
-                            dt = dt.replace(tzinfo=timezone.utc)
-                        age_mins = (now_utc - dt).total_seconds() / 60
-                        if age_mins > MAX_AGE_MINUTES or age_mins < -60:
-                            continue  # Too old or future-dated
-                    else:
-                        continue # Skip items where we completely fail to parse the date to be safe
-                else:
-                    continue # Strict limit: No date = no post (prevent extremely old bumped items)
+                if dt is None:
+                    continue
+                if dt.tzinfo is None:
+                    dt = dt.replace(tzinfo=timezone.utc)
+                age_mins = (now_utc - dt).total_seconds() / 60
+                if age_mins > MAX_AGE_MINUTES or age_mins < -5:
+                    continue
+
+                # Optional keyword filter for general news sites
+                if keyword_filter:
+                    text = (title + " " + desc).lower()
+                    if not any(kw in text for kw in HIGH_IMPACT_KEYWORDS):
+                        continue
 
                 items.append({
                     "id": make_id(title, link),
@@ -161,8 +169,19 @@ def fetch_all():
                 })
         except Exception as e:
             print(f"RSS error [{source_name}]: {e}")
+    return items
 
-    # 2. CryptoPanic
+def fetch_all():
+    now_utc = datetime.now(timezone.utc)
+    items = []
+
+    # Market/FX feeds: all articles (no keyword filter)
+    items += fetch_rss(MARKET_RSS_SOURCES, now_utc, keyword_filter=False)
+
+    # General news feeds: keyword filter applied
+    items += fetch_rss(FILTERED_RSS_SOURCES, now_utc, keyword_filter=True)
+
+    # CryptoPanic
     if CPANIC_KEY:
         try:
             url = f"https://cryptopanic.com/api/v1/posts/?auth_token={CPANIC_KEY}&filter=hot&public=true"
@@ -171,7 +190,6 @@ def fetch_all():
                 title = post.get("title", "").strip()
                 link  = post.get("url", "").strip()
                 pub_d = post.get("created_at", "").strip()
-                
                 if pub_d:
                     try:
                         dt = datetime.fromisoformat(pub_d.replace("Z", "+00:00"))
@@ -180,18 +198,16 @@ def fetch_all():
                             continue
                     except Exception:
                         pass
-
                 items.append({
                     "id": make_id(title, link),
                     "source": "CryptoPanic",
-                    "title": title,
-                    "link": link,
-                    "description": ""
+                    "title": title, "link": link, "description": ""
                 })
         except Exception as e:
             print(f"CryptoPanic error: {e}")
 
     return items
+
 
 def run():
     print(f"Starting news fetch at {datetime.now(timezone.utc)}")
