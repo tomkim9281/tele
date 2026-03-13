@@ -1,7 +1,8 @@
 """
 Economic Calendar Bot — MyInvestmentMarkets
-- Weekly schedule: GitHub Actions Cron every Monday KST 09:00
+- Weekly schedule: GitHub Actions Cron every Monday UTC 00:00 = KST 09:00
 - Event alerts: GitHub Actions Cron every 5 minutes (high impact only, 1hr notice)
+All times displayed in UTC.
 """
 
 import json
@@ -13,26 +14,35 @@ from datetime import datetime, timezone, timedelta
 
 BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
 CHAT_ID = -1003754818644
-TOPIC_CALENDAR = 6  # eco
-KST = timezone(timedelta(hours=9))
+TOPIC_CALENDAR = 6
+UTC = timezone.utc
 SENT_ALERTS_FILE = "/tmp/sent_alerts.json"
 
-TRADINGVIEW_CALENDAR_URL = "https://www.tradingview.com/economic-calendar/"
+# Country code → flag emoji
+FLAG = {
+    "USD": "🇺🇸", "EUR": "🇪🇺", "GBP": "🇬🇧", "JPY": "🇯🇵",
+    "CNY": "🇨🇳", "CAD": "🇨🇦", "AUD": "🇦🇺", "NZD": "🇳🇿",
+    "CHF": "🇨🇭", "KRW": "🇰🇷",
+    "United States": "🇺🇸", "Euro Zone": "🇪🇺", "United Kingdom": "🇬🇧",
+    "Japan": "🇯🇵", "China": "🇨🇳", "Canada": "🇨🇦", "Australia": "🇦🇺",
+    "New Zealand": "🇳🇿", "Switzerland": "🇨🇭", "South Korea": "🇰🇷",
+}
+
+def flag(country):
+    return FLAG.get(country, "🌐")
+
+def impact_dot(impact):
+    return "🔴" if impact == "High" else "🟡" if impact == "Medium" else "⚪"
 
 def tg_send(text):
     payload = {
-        "chat_id": CHAT_ID,
-        "message_thread_id": TOPIC_CALENDAR,
-        "text": text,
-        "parse_mode": "HTML",
-        "disable_web_page_preview": True
+        "chat_id": CHAT_ID, "message_thread_id": TOPIC_CALENDAR,
+        "text": text, "parse_mode": "HTML", "disable_web_page_preview": True
     }
-    data = json.dumps(payload).encode()
     req = urllib.request.Request(
         f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
-        data=data,
-        headers={"Content-Type": "application/json"}
-    )
+        data=json.dumps(payload).encode(),
+        headers={"Content-Type": "application/json"})
     with urllib.request.urlopen(req, timeout=10) as r:
         return json.loads(r.read())
 
@@ -44,23 +54,21 @@ def fetch_url(url):
 def parse_ff_xml(week="thisweek"):
     url = f"https://nfs.faireconomy.media/ff_calendar_{week}.xml"
     try:
-        raw = fetch_url(url)
-        root = ET.fromstring(raw)
+        root = ET.fromstring(fetch_url(url))
         events = []
         for ev in root.findall("event"):
-            # Parse date and time from ForexFactory
             date_str = ev.findtext("date", "")
             time_str = ev.findtext("time", "")
 
-            # Convert time to KST (ForexFactory is US Eastern)
-            # ET is UTC-5 (or UTC-4 during DST) — we add 13/14 hours for KST
-            dt_kst = None
+            # ForexFactory times are US Eastern — convert to UTC
+            dt_utc = None
             try:
-                if time_str and time_str != "All Day":
+                if time_str and time_str not in ("All Day", ""):
                     dt_et = datetime.strptime(f"{date_str} {time_str}", "%b %d, %Y %I:%M%p")
-                    # Assume ET = UTC-4 (approximate, DST)
+                    # ET ≈ UTC-4 during DST (Mar-Nov), UTC-5 otherwise
+                    # Mar is DST → UTC-4
                     dt_utc = dt_et + timedelta(hours=4)
-                    dt_kst = dt_utc + timedelta(hours=9)
+                    dt_utc = dt_utc.replace(tzinfo=UTC)
             except Exception:
                 pass
 
@@ -68,93 +76,104 @@ def parse_ff_xml(week="thisweek"):
                 "title":    ev.findtext("title", ""),
                 "country":  ev.findtext("country", ""),
                 "date":     date_str,
-                "time":     time_str,
-                "time_kst": dt_kst.strftime("%a %H:%M KST") if dt_kst else time_str,
-                "dt_kst":   dt_kst,
+                "time_str": time_str,
+                "time_utc": dt_utc.strftime("%H:%M") if dt_utc else time_str,
+                "dt_utc":   dt_utc,
                 "impact":   ev.findtext("impact", ""),
                 "forecast": ev.findtext("forecast", ""),
                 "previous": ev.findtext("previous", ""),
                 "actual":   ev.findtext("actual", ""),
+                "currency": ev.findtext("currency", ev.findtext("country", "")),
             })
         return events
     except Exception as e:
         print(f"FF XML error: {e}")
         return []
 
-def star(impact):
-    return "⭐⭐⭐" if impact == "High" else "⭐⭐" if impact == "Medium" else "⭐"
-
 def load_sent_alerts():
     try:
-        with open(SENT_ALERTS_FILE, "r") as f:
+        with open(SENT_ALERTS_FILE) as f:
             return set(json.load(f))
     except Exception:
         return set()
 
 def save_sent_alerts(ids):
     try:
-        id_list = list(ids)[-200:]
         with open(SENT_ALERTS_FILE, "w") as f:
-            json.dump(id_list, f)
+            json.dump(list(ids)[-200:], f)
     except Exception:
         pass
 
-# ── WEEKLY SCHEDULE ────────────────────────────────────────────────────────
+# ── WEEKLY SCHEDULE ───────────────────────────────────────────────────────────
 def send_weekly_schedule():
-    now_kst = datetime.now(KST)
+    now_utc = datetime.now(UTC)
     events_this = parse_ff_xml("thisweek")
     events_next = parse_ff_xml("nextweek")
-    all_events = events_this + events_next
+    all_events = [e for e in events_this + events_next
+                  if e["impact"] in ("High", "Medium")]
 
-    # Filter High + Medium impact
-    filtered = [e for e in all_events if e["impact"] in ("High", "Medium")]
-
-    if not filtered:
+    if not all_events:
         print("No events to report.")
         return
 
-    # Week range label
-    week_start = now_kst.strftime("%b %d")
-    week_end   = (now_kst + timedelta(days=6)).strftime("%b %d, %Y")
+    week_start = now_utc.strftime("%b %d")
+    week_end   = (now_utc + timedelta(days=6)).strftime("%b %d, %Y")
 
-    msg = f"📅 <b>THIS WEEK'S KEY EVENTS</b>\nWeek of {week_start} – {week_end}\n\n"
+    msg = (
+        f"📅 <b>THIS WEEK'S KEY EVENTS</b>\n"
+        f"⏱ Timezone: UTC  |  Week of {week_start} – {week_end}\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n"
+    )
 
-    high_events = [e for e in filtered if e["impact"] == "High"]
-    med_events  = [e for e in filtered if e["impact"] == "Medium"]
+    # Group by date
+    from collections import defaultdict
+    by_day = defaultdict(list)
+    for e in all_events:
+        by_day[e["date"]].append(e)
 
-    if high_events:
-        msg += "<b>⭐⭐⭐ HIGH IMPACT</b>\n"
-        for e in high_events[:8]:
-            msg += f"{e['time_kst']} — {e['country']} — <b>{e['title']}</b>\n"
-            if e["forecast"] or e["previous"]:
-                parts = []
-                if e["forecast"]:
-                    parts.append(f"Fcst: {e['forecast']}")
-                if e["previous"]:
-                    parts.append(f"Prev: {e['previous']}")
-                msg += f"  {' | '.join(parts)}\n"
-        msg += "\n"
+    # Sort dates
+    def parse_date(d):
+        try:
+            return datetime.strptime(d, "%b %d, %Y")
+        except Exception:
+            return datetime.min
 
-    if med_events:
-        msg += "<b>⭐⭐ MEDIUM IMPACT</b>\n"
-        for e in med_events[:8]:
-            msg += f"{e['time_kst']} — {e['country']} — {e['title']}\n"
+    for date_key in sorted(by_day.keys(), key=parse_date):
+        day_events = sorted(by_day[date_key],
+                            key=lambda x: x["time_utc"] if x["time_utc"] else "99:99")
+        try:
+            day_label = datetime.strptime(date_key, "%b %d, %Y").strftime("%A, %b %d")
+        except Exception:
+            day_label = date_key
 
-    msg += "\nMyInvestmentMarkets"
+        msg += f"\n🗓 <b>{day_label}</b>\n"
+        for e in day_events:
+            cur = e.get("currency", e["country"])
+            dot = impact_dot(e["impact"])
+            f_emoji = flag(e["country"])
+            msg += f"{f_emoji} {e['time_utc']} [{cur}] {dot} {e['title']}\n"
+            parts = []
+            if e["forecast"]: parts.append(f"📊 Fcst: {e['forecast']}")
+            if e["previous"]: parts.append(f"Prev: {e['previous']}")
+            if e["actual"]:   parts.append(f"✅ Actual: {e['actual']}")
+            if parts:
+                msg += f"↳ {' | '.join(parts)}\n"
+
+    msg += "\n━━━━━━━━━━━━━━━━━━━━\n⚡️ MIM Global Financial Services"
 
     tg_send(msg)
     print("✅ Weekly schedule sent.")
 
-# ── EVENT ALERTS (every 5 min check) ─────────────────────────────────────
+# ── EVENT ALERTS (every 5 min) ────────────────────────────────────────────────
 def check_event_alerts():
-    now_kst = datetime.now(KST)
+    now_utc = datetime.now(UTC)
     sent_alerts = load_sent_alerts()
 
     events_this = parse_ff_xml("thisweek")
     events_next = parse_ff_xml("nextweek")
     all_events = events_this + events_next
 
-    high_events = [e for e in all_events if e["impact"] == "High" and e["dt_kst"]]
+    high_events = [e for e in all_events if e["impact"] == "High" and e["dt_utc"]]
     new_count = 0
 
     for e in high_events:
@@ -162,22 +181,21 @@ def check_event_alerts():
         if alert_id in sent_alerts:
             continue
 
-        dt_kst = e["dt_kst"]
-        minutes_until = (dt_kst - now_kst).total_seconds() / 60
+        minutes_until = (e["dt_utc"] - now_utc).total_seconds() / 60
 
         if 55 <= minutes_until <= 65:
-            release_time = dt_kst.strftime("%H:%M KST")
+            dot = impact_dot(e["impact"])
+            f_emoji = flag(e["country"])
+            cur = e.get("currency", e["country"])
             msg = (
                 f"⚠️ <b>EVENT ALERT — 1 Hour Notice</b>\n\n"
                 f"📌 <b>{e['title']}</b>\n"
-                f"🇺🇸 {e['country']}  |  ⭐⭐⭐ HIGH IMPACT\n"
-                f"⏰ Release: <b>{release_time}</b>\n"
+                f"{f_emoji} {e['country']}  [{cur}]  {dot} HIGH IMPACT\n"
+                f"⏰ Release: <b>{e['time_utc']} UTC</b>\n"
             )
-            if e["forecast"]:
-                msg += f"Forecast: {e['forecast']}\n"
-            if e["previous"]:
-                msg += f"Previous: {e['previous']}\n"
-            msg += "\n⚡ Expect elevated volatility around the release.\nTrade with caution.\n\nMyInvestmentMarkets"
+            if e["forecast"]: msg += f"📊 Forecast: {e['forecast']}\n"
+            if e["previous"]: msg += f"Prev: {e['previous']}\n"
+            msg += "\n⚡ Expect elevated volatility around release.\nTrade with caution.\n\n⚡️ MIM Global Financial Services"
 
             try:
                 tg_send(msg)
