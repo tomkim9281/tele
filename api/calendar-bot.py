@@ -19,7 +19,7 @@ SENT_ALERTS_FILE = "/tmp/sent_alerts.json"
 
 TRADINGVIEW_CALENDAR_URL = "https://www.tradingview.com/economic-calendar/"
 
-def tg_send(text, with_calendar_button=True):
+def tg_send(text):
     payload = {
         "chat_id": CHAT_ID,
         "message_thread_id": TOPIC_CALENDAR,
@@ -27,12 +27,6 @@ def tg_send(text, with_calendar_button=True):
         "parse_mode": "HTML",
         "disable_web_page_preview": True
     }
-    if with_calendar_button:
-        payload["reply_markup"] = json.dumps({
-            "inline_keyboard": [[
-                {"text": "📅 Calendar", "url": TRADINGVIEW_CALENDAR_URL}
-            ]]
-        })
     data = json.dumps(payload).encode()
     req = urllib.request.Request(
         f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
