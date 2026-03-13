@@ -51,7 +51,7 @@ def tg_send_webapp_button():
     payload = {
         "chat_id": CHAT_ID,
         "message_thread_id": TOPIC_CALENDAR,
-        "text": "📅 <b>Economic Calendar</b>\n\nTap below to open TradingView Economic Calendar inside Telegram",
+        "text": "📅 <b>Economic Calendar</b>\n\nTap below to open the Economic Calendar inside Telegram",
         "parse_mode": "HTML",
         "reply_markup": {
             "inline_keyboard": [[
