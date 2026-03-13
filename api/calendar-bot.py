@@ -222,14 +222,15 @@ def check_event_alerts():
         alert_id = f"alert_{event_id}"
         if alert_id not in sent_alerts and 55 <= minutes_until <= 65:
             msg = (
-                f"⚠️ <b>EVENT ALERT — 1 Hour Notice</b>\n\n"
-                f"📌 <b>{e['title']}</b>\n"
-                f"{f_em} {e['country']}  [{cur}]  {dot} HIGH IMPACT\n"
+                f"⚠️ <b>EVENT ALERT — 1 Hour Notice</b>\n"
+                f"━━━━━━━━━━━━━━━━━━━━\n\n"
+                f"{f_em} <b>{e['title']}</b>\n"
+                f"{e['country']}  [{cur}]  {dot} HIGH IMPACT\n\n"
                 f"⏰ Release: <b>{e['time_utc']} UTC</b>\n"
             )
             if e["forecast"]: msg += f"📊 Forecast: {e['forecast']}\n"
             if e["previous"]: msg += f"Prev: {e['previous']}\n"
-            msg += "\n⚡ Expect elevated volatility around release.\nTrade with caution.\n\n⚡️ MIM Global Financial Services"
+            msg += "\n⚠️ Expect elevated volatility around release.\nTrade with caution.\n\n━━━━━━━━━━━━━━━━━━━━\n⚡️ MIM Global Financial Services"
             try:
                 tg_send(msg)
                 sent_alerts.add(alert_id)
@@ -255,9 +256,10 @@ def check_event_alerts():
                 pass
 
             msg = (
-                f"📊 <b>DATA RELEASE</b>{beat}\n\n"
+                f"📊 <b>DATA RELEASE</b>{beat}\n"
+                f"━━━━━━━━━━━━━━━━━━━━\n\n"
                 f"{f_em} <b>{e['title']}</b>\n"
-                f"{e['country']}  [{cur}]  {dot} HIGH IMPACT\n"
+                f"{e['country']}  [{cur}]  {dot} HIGH IMPACT\n\n"
                 f"⏰ Released: <b>{e['time_utc']} UTC</b>\n\n"
                 f"┌ Actual:   <b>{e['actual']}</b>\n"
             )
