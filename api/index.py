@@ -45,9 +45,9 @@ CATEGORIES = {
 
 # ── Yahoo Finance helper ─────────────────────────────────────────────────────
 def get_data(ticker):
-    # 30-minute intraday bars for today
+    # 30-minute intraday bars for 5 days to give better contextual scale
     url = (f"https://query1.finance.yahoo.com/v8/finance/chart/"
-           f"{urllib.parse.quote(ticker)}?interval=30m&range=1d")
+           f"{urllib.parse.quote(ticker)}?interval=30m&range=5d")
     req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
     with urllib.request.urlopen(req, timeout=10) as r:
         resp = json.loads(r.read())
@@ -304,7 +304,7 @@ header{
   <div class="cc-header">
     <div class="cc-title" id="chart-title">--</div>
     <div class="cc-badges">
-      <div class="cc-badge today">TODAY</div>
+      <div class="cc-badge today">5 DAYS</div>
       <div class="cc-badge">30 MIN</div>
     </div>
   </div>
@@ -412,7 +412,7 @@ async function loadQuote(cat, sym) {
       initChart();
       cSeries.setData(d.ohlc);
       chartObj.timeScale().fitContent();
-      document.getElementById('chart-title').textContent = sym + ' · Today';
+      document.getElementById('chart-title').textContent = sym + ' · 5 Days';
     }
 
     if (tg && tg.HapticFeedback) tg.HapticFeedback.impactOccurred('light');

@@ -228,9 +228,9 @@ header{
 
 <div id="chart-card">
   <div class="cc-header">
-    <div class="cc-title" id="chart-title">-- · Today</div>
+    <div class="cc-title" id="chart-title">-- · 5 Days</div>
     <div class="cc-badges">
-      <div class="cc-badge today">TODAY</div>
+      <div class="cc-badge today">5 DAYS</div>
       <div class="cc-badge">30 MIN</div>
     </div>
   </div>
@@ -336,7 +336,7 @@ async function loadQuote(cat, sym) {
       initChart();
       cSeries.setData(d.ohlc);
       chartObj.timeScale().fitContent();
-      document.getElementById('chart-title').textContent = sym + ' · Today';
+      document.getElementById('chart-title').textContent = sym + ' · 5 Days';
     }
 
     if (tg && tg.HapticFeedback) tg.HapticFeedback.impactOccurred('light');
