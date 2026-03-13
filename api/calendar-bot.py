@@ -30,7 +30,7 @@ def tg_send(text, with_calendar_button=True):
     if with_calendar_button:
         payload["reply_markup"] = json.dumps({
             "inline_keyboard": [[
-                {"text": "📅 Calendar", "web_app": {"url": TRADINGVIEW_CALENDAR_URL}}
+                {"text": "📅 Calendar", "url": TRADINGVIEW_CALENDAR_URL}
             ]]
         })
     data = json.dumps(payload).encode()
