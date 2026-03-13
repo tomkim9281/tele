@@ -95,15 +95,61 @@ STRATEGIES = [
     }
 ]
 
-def get_daily_index():
+def get_daily_index(pool_size):
     """Returns a rotating index based on the day of the year."""
     day_num = datetime.now(KST).timetuple().tm_yday
-    return day_num % len(STRATEGIES)
+    return day_num % pool_size
 
 def fetch_url(url):
     req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
     with urllib.request.urlopen(req, timeout=10) as r:
         return r.read()
+
+def fetch_website_strategies():
+    """Fetches articles from the MIM education feed and maps them to strategy format."""
+    try:
+        from bs4 import BeautifulSoup
+        url = "https://www.myinvestmentmarkets.com/support/education-feed/en"
+        html = fetch_url(url)
+        soup = BeautifulSoup(html, "html.parser")
+        articles = soup.find_all("article")
+        
+        web_strats = []
+        for art in articles:
+            title_tag = art.find("h2") or art.find("h1") or art.find("h3")
+            if not title_tag: continue
+            title = title_tag.get_text(strip=True)
+            
+            # Simple text extraction
+            paragraphs = [p.get_text(strip=True) for p in art.find_all("p")]
+            desc = " ".join(paragraphs)[:400] + "..." if paragraphs else title
+            
+            # Dynamic mapping heuristics
+            t_low = title.lower()
+            
+            symbol = "^DJI" # Default
+            if "fed" in t_low or "election" in t_low or "interest" in t_low: symbol = "^GSPC"
+            elif "software" in t_low or "ai" in t_low or "tech" in t_low: symbol = "^NDX"
+            elif "fx" in t_low or "correlation" in t_low: symbol = "EURUSD=X"
+            elif "gold" in t_low or "silver" in t_low: symbol = "GC=F"
+            
+            indicators = ["EMA20", "RSI"] # Default
+            if "volume" in t_low or "profile" in t_low or "flow" in t_low: indicators = ["Volume", "EMA20"]
+            elif "volatility" in t_low or "atr" in t_low or "squeeze" in t_low: indicators = ["BB", "ATR"]
+            elif "trend" in t_low or "macd" in t_low or "ema" in t_low: indicators = ["MACD", "EMA50"]
+            elif "momentum" in t_low or "stochastic" in t_low: indicators = ["RSI", "Stochastic"]
+            
+            web_strats.append({
+                "name": title,
+                "symbol": symbol,
+                "display": symbol, # fallback, will be overwritten in UI map later if needed
+                "indicators": indicators,
+                "description": desc
+            })
+        return web_strats
+    except Exception as e:
+        print(f"Error fetching web strategies: {e}")
+        return []
 
 def get_ohlcv(symbol, period="90d"):
     import urllib.parse
@@ -303,7 +349,24 @@ def tg_send_photo(photo_bytes, caption):
         return json.loads(r.read())
 
 def run():
-    strategy = STRATEGIES[get_daily_index()]
+    web_strategies = fetch_website_strategies()
+    master_pool = STRATEGIES + web_strategies
+    if not master_pool:
+        print("No strategies found.")
+        return
+
+    idx = get_daily_index(len(master_pool))
+    strategy = master_pool[idx]
+    
+    # Improve display names dynamically
+    sym_map = {
+        "^NDX": "Nasdaq 100", "^GSPC": "S&P 500", "GC=F": "Gold", 
+        "CL=F": "WTI Crude", "EURUSD=X": "EUR/USD", "^DJI": "Dow Jones",
+        "BTC-USD": "Bitcoin", "^N225": "Nikkei 225", "GBPUSD=X": "GBP/USD", "AAPL": "Apple"
+    }
+    if strategy["display"] == strategy["symbol"]:
+        strategy["display"] = sym_map.get(strategy["symbol"], strategy["symbol"])
+    
     print(f"📚 Strategy: {strategy['name']} — {strategy['display']}")
 
     # Build chart + compute indicators
