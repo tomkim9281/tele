@@ -108,7 +108,14 @@ def fetch_url(url):
 def fetch_website_strategies():
     """Fetches articles from the MIM education feed and maps them to strategy format."""
     try:
-        from bs4 import BeautifulSoup
+        try:
+            from bs4 import BeautifulSoup
+        except ImportError:
+            import subprocess
+            import sys
+            subprocess.check_call([sys.executable, "-m", "pip", "install", "beautifulsoup4"])
+            from bs4 import BeautifulSoup
+            
         url = "https://www.myinvestmentmarkets.com/support/education-feed/en"
         html = fetch_url(url)
         soup = BeautifulSoup(html, "html.parser")
