@@ -57,9 +57,10 @@ HIGH_IMPACT_KEYWORDS = [
     # Crypto
     "bitcoin", "crypto", "btc", "eth", "binance", "coinbase",
     # Commodities / FX
-    "dollar", "euro", "yen", "gold", "silver", "crude",
-    # Companies
-    "apple", "microsoft", "nvidia", "tesla", "amazon", "google", "meta"
+    "apple", "microsoft", "nvidia", "tesla", "amazon", "google", "meta",
+    # Geopolitics / Macro / Breaking Disasters
+    "military", "attack", "strike", "missile", "tanker", "explosion", 
+    "emergency", "nato", "russia", "china", "ukraine", "iran", "israel"
 ]
 
 def load_sent_ids():
@@ -226,8 +227,6 @@ def run():
     for item in all_items:
         if item["id"] in sent_ids:
             continue
-        if not is_high_impact(item["title"], item["description"]):
-            continue
 
         summary = gemini_one_line(item["title"], item["description"])
 
@@ -236,10 +235,10 @@ def run():
             f"<b>{item['title']}</b>\n"
         )
         if summary:
-            text += f"📌 {summary}\n"
+            text += f"\n📌 <i>{summary}</i>\n"
         text += (
             f"\n📰 {item['source']}\n"
-            f"📎 <a href='{item['link']}'>Read Source</a>"
+            f"🔗 <a href='{item['link']}'>Read More</a>"
         )
 
         try:
