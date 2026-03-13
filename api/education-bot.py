@@ -433,12 +433,12 @@ def run():
 
 def send_error_to_telegram(error_text):
     import urllib.parse
-    text = f"🚨 <b>BOT CRASH REPORT</b>\n<pre>{error_text}</pre>"
+    text = f"🚨 BOT CRASH REPORT\n\n{error_text}"
+    if len(text) > 4000: text = text[:4000]
     payload = {
         "chat_id": CHAT_ID, 
         "message_thread_id": TOPIC_EDUCATION,
-        "text": text, 
-        "parse_mode": "HTML"
+        "text": text
     }
     req = urllib.request.Request(
         f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
