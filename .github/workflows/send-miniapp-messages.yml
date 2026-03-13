@@ -1,0 +1,41 @@
+name: Send Mini App Messages
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: 'Which message to send: market, calendar, or both'
+        required: true
+        default: 'both'
+        type: choice
+        options:
+          - market
+          - calendar
+          - both
+
+jobs:
+  send-market:
+    if: github.event.inputs.target == 'market' || github.event.inputs.target == 'both'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Send Market Quotes Mini App Message
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+        run: python api/market-miniapp.py
+
+  send-calendar:
+    if: github.event.inputs.target == 'calendar' || github.event.inputs.target == 'both'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Send Calendar Mini App Message
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+        run: python api/calendar-bot.py weekly

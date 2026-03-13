@@ -14,7 +14,7 @@ from datetime import datetime, timezone, timedelta
 
 BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
 CHAT_ID = -1003733637841
-TOPIC_CALENDAR = 66  # 캘린더
+TOPIC_CALENDAR = 41  # 캘린더
 UTC = timezone.utc
 SENT_ALERTS_FILE = "/tmp/sent_alerts.json"
 
@@ -55,7 +55,7 @@ def tg_send_webapp_button():
         "parse_mode": "HTML",
         "reply_markup": {
             "inline_keyboard": [[
-                {"text": "📅 Open Calendar", "web_app": {"url": "https://tele-five-tau.vercel.app/calendar.html"}}
+                {"text": "📅 Open Calendar", "url": "https://t.me/MIM_AI_Agent_bot/MIMMIM"}
             ]]
         }
     }
