@@ -46,6 +46,27 @@ def tg_send(text):
     with urllib.request.urlopen(req, timeout=10) as r:
         return json.loads(r.read())
 
+def tg_send_webapp_button():
+    """Send/pin the Economic Calendar Web App button to the 캘린더 topic."""
+    payload = {
+        "chat_id": CHAT_ID,
+        "message_thread_id": TOPIC_CALENDAR,
+        "text": "📅 <b>Economic Calendar</b>\n\nTap below to open TradingView Economic Calendar inside Telegram",
+        "parse_mode": "HTML",
+        "reply_markup": {
+            "inline_keyboard": [[
+                {"text": "📅 Open Calendar", "web_app": {"url": "https://tele-five-tau.vercel.app/calendar.html"}}
+            ]]
+        }
+    }
+    req = urllib.request.Request(
+        f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
+        data=json.dumps(payload).encode(),
+        headers={"Content-Type": "application/json"})
+    with urllib.request.urlopen(req, timeout=10) as r:
+        return json.loads(r.read())
+
+
 def fetch_url(url):
     req = urllib.request.Request(url, headers={
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
@@ -110,79 +131,9 @@ def save_sent_alerts(ids):
 
 # ── WEEKLY SCHEDULE ───────────────────────────────────────────────────────────
 def send_weekly_schedule():
-    now_utc = datetime.now(UTC)
-    events_this = parse_ff_xml("thisweek")
-    events_next = parse_ff_xml("nextweek")
-    all_events = [e for e in events_this + events_next
-                  if e["impact"] in ("High", "Medium")]
-
-    if not all_events:
-        print("No events to report.")
-        return
-
-    week_start = now_utc.strftime("%b %d")
-    week_end   = (now_utc + timedelta(days=6)).strftime("%b %d, %Y")
-
-    header = (
-        f"📅 <b>THIS WEEK'S KEY EVENTS</b>\n"
-        f"⏱ Timezone: UTC  |  Week of {week_start} – {week_end}\n"
-        f"━━━━━━━━━━━━━━━━━━━━"
-    )
-
-    from collections import defaultdict
-
-    def parse_date(d):
-        try:
-            return datetime.strptime(d, "%b %d, %Y")
-        except Exception:
-            return datetime.min
-
-    by_day = defaultdict(list)
-    for e in all_events:
-        by_day[e["date"]].append(e)
-
-    # Build each day block
-    day_blocks = []
-    for date_key in sorted(by_day.keys(), key=parse_date):
-        day_events = sorted(by_day[date_key],
-                            key=lambda x: x["time_utc"] if x["time_utc"] else "99:99")
-        try:
-            day_label = datetime.strptime(date_key, "%b %d, %Y").strftime("%A, %b %d")
-        except Exception:
-            day_label = date_key
-
-        event_lines = []
-        for e in day_events:
-            cur = e.get("currency", e["country"])
-            dot = impact_dot(e["impact"])
-            f_em = flag(e["country"])
-            line = f"{f_em} {e['time_utc']} [{cur}] {dot} <b>{e['title']}</b>"
-
-            # Sub-line: forecast/previous or speech label
-            title_lower = e["title"].lower()
-            if any(w in title_lower for w in ["speak", "speech", "press conference", "testimony", "hearing"]):
-                line += f"\n↳ 🎙 <i>Speeches &amp; Events</i>"
-            else:
-                parts = []
-                if e["forecast"]: parts.append(f"Fcst: {e['forecast']}")
-                if e["previous"]: parts.append(f"Prev: {e['previous']}")
-                if e["actual"]:   parts.append(f"✅ Actual: {e['actual']}")
-                if parts:
-                    line += f"\n↳ 📊 {' | '.join(parts)}"
-
-            event_lines.append(line)
-
-        # Day section: header + events separated by blank line
-        day_block = f"🗓 <b>{day_label}</b>\n" + "\n\n".join(event_lines)
-        day_blocks.append(day_block)
-
-    footer = "━━━━━━━━━━━━━━━━━━━━\n⚡️ MIM Global Financial Services"
-
-    # Join: header + blank line + day blocks separated by blank line + footer
-    msg = header + "\n\n" + "\n\n".join(day_blocks) + "\n\n" + footer
-
-    tg_send(msg)
-    print("✅ Weekly schedule sent.")
+    """Send the Economic Calendar Web App button to the 캘린더 topic."""
+    tg_send_webapp_button()
+    print("✅ Weekly calendar Web App button sent.")
 
 SENT_ACTUALS_FILE = "/tmp/sent_actuals.json"
 
