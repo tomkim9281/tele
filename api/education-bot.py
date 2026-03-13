@@ -382,32 +382,51 @@ def run():
 
     # Generate Gemini commentary
     print("🧠 Requesting AI commentary...")
-    commentary = gemini_education(strategy, indicator_values, df.iloc[-1]['Close'])
+    try:
+        commentary = gemini_education(strategy, indicator_values, df.iloc[-1]['Close'])
+    except Exception as e:
+        print(f"Gemini API failed: {e}")
+        commentary = strategy.get("description", "Education commentary is unavailable at this moment.")
     
     if not commentary:
-        commentary = "Education commentary is unavailable at this moment."
+        commentary = strategy.get("description", "Education commentary is unavailable.")
     else:
         # Prevent Telegram HTML parse errors by escaping rogue tags
         commentary = commentary.replace("<", "&lt;").replace(">", "&gt;")
 
-    # Build caption
+    # HTML escaping helper
+    def safe(txt):
+        return str(txt).replace("<", "&lt;").replace(">", "&gt;")
+
+    safe_name = safe(strategy['name'])[:50]
+    safe_desc = safe(strategy.get('description', ''))
+    safe_display = safe(strategy['display'])
+
     indicators_text = "\n".join(f"{k}: {v}" for k, v in indicator_values.items())
     now_str = datetime.now(KST).strftime("%b %d, %Y")
 
-    caption = (
-        f"🎓 <b>TRADING EDUCATION — {strategy['name']}</b>\n"
-        f"━━━━━━━━━━━━━━━━━━━━\n"
-        f"📌 <b>{strategy['description']}</b>\n\n"
-        f"{commentary}\n\n"
-        f"━━━━━━━━━━━━━━━━━━━━\n"
-        f"📊 <b>Current Values ({strategy['display']})</b>\n"
+    header = f"🎓 <b>TRADING EDUCATION — {safe_name}</b>\n━━━━━━━━━━━━━━━━━━━━\n📌 <b>"
+    mid = f"</b>\n\n"
+    footer = (
+        f"\n\n━━━━━━━━━━━━━━━━━━━━\n"
+        f"📊 <b>Values ({safe_display})</b>\n"
         f"{indicators_text}\n\n"
-        f"MyInvestmentMarkets  |  {now_str}"
+        f"MIM | {now_str}"
     )
 
-    # Caption limit is 1024 chars for photos
-    if len(caption) > 1020:
-        caption = caption[:1017] + "..."
+    static_len = len(header) + len(mid) + len(footer)
+    budget = 1010 - static_len
+
+    # Allocate max 150 chars to description
+    if len(safe_desc) > 150:
+        safe_desc = safe_desc[:147] + "..."
+
+    # Allocate the rest to commentary
+    com_budget = budget - len(safe_desc)
+    if len(commentary) > com_budget:
+        commentary = commentary[:com_budget-3] + "..."
+
+    caption = header + safe_desc + mid + commentary + footer
 
     tg_send_photo(chart_bytes, caption)
     print(f"✅ Education post sent: {strategy['name']}")
