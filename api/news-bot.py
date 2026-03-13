@@ -31,6 +31,8 @@ MARKET_RSS_SOURCES = [
     ("FXStreet",       "https://www.fxstreet.com/rss"),
     ("ForexLive",      "https://www.forexlive.com/feed/news"),
     ("Cointelegraph",  "https://cointelegraph.com/rss"),
+    ("Seeking Alpha",  "https://seekingalpha.com/market_currents.xml"),  # Real-time!
+    ("Nasdaq News",    "https://www.nasdaq.com/feed/rssoutbound?category=Markets"),
 ]
 
 # General news sites: keyword filter applied (finance/economy only)
@@ -38,6 +40,8 @@ FILTERED_RSS_SOURCES = [
     ("CNBC Markets",   "https://search.cnbc.com/rs/search/combinedcms/view.xml?partnerId=wrss01&id=10000664"),
     ("BBC Business",   "https://feeds.bbci.co.uk/news/business/rss.xml"),
     ("Guardian Biz",   "https://www.theguardian.com/business/rss"),
+    ("Yahoo Finance",  "https://finance.yahoo.com/news/rssindex"),
+    ("Motley Fool",    "https://www.fool.com/feeds/index.aspx"),
 ]
 
 HIGH_IMPACT_KEYWORDS = [
