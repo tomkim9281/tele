@@ -17,7 +17,9 @@ TOPIC_CALENDAR = 6  # eco
 KST = timezone(timedelta(hours=9))
 SENT_ALERTS_FILE = "/tmp/sent_alerts.json"
 
-def tg_send(text):
+TRADINGVIEW_CALENDAR_URL = "https://www.tradingview.com/economic-calendar/"
+
+def tg_send(text, with_calendar_button=True):
     payload = {
         "chat_id": CHAT_ID,
         "message_thread_id": TOPIC_CALENDAR,
@@ -25,6 +27,12 @@ def tg_send(text):
         "parse_mode": "HTML",
         "disable_web_page_preview": True
     }
+    if with_calendar_button:
+        payload["reply_markup"] = json.dumps({
+            "inline_keyboard": [[
+                {"text": "📅 Calendar", "web_app": {"url": TRADINGVIEW_CALENDAR_URL}}
+            ]]
+        })
     data = json.dumps(payload).encode()
     req = urllib.request.Request(
         f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
