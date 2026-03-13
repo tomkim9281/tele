@@ -380,11 +380,15 @@ def run():
     chart_bytes, indicator_values, df = build_chart_and_indicators(strategy)
     recent_close = df["Close"].iloc[-1]
 
-    # Gemini educational commentary
-    try:
-        commentary = gemini_education(strategy, indicator_values, recent_close)
-    except Exception as e:
-        commentary = f"Today we analyze {strategy['name']} on {strategy['display']}."
+    # Generate Gemini commentary
+    print("🧠 Requesting AI commentary...")
+    commentary = gemini_education(strategy, indicator_values, df.iloc[-1]['Close'])
+    
+    if not commentary:
+        commentary = "Education commentary is unavailable at this moment."
+    else:
+        # Prevent Telegram HTML parse errors by escaping rogue tags
+        commentary = commentary.replace("<", "&lt;").replace(">", "&gt;")
 
     # Build caption
     indicators_text = "\n".join(f"{k}: {v}" for k, v in indicator_values.items())
